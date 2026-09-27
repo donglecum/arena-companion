@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arena Companion</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="alternate icon" type="image/png" sizes="32x32" href="/icon-32.png">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">Arena <span class="accent-text">Companion</span></div>
+  <nav id="nav">
+    <a href="#/dashboard" data-view="dashboard">Dashboard</a>
+    <a href="#/champions" data-view="champions">Champions</a>
+    <a href="#/champselect" data-view="champselect">Champ Select</a>
+    <a href="#/settings" data-view="settings">Settings</a>
+  </nav>
+  <div id="conn-pill" class="pill"><span class="dot"></span><span id="conn-text">…</span></div>
+</header>
+
+<div id="toast" class="toast hidden"></div>
+
+<main id="view-dashboard" class="view">
+  <div class="hero card">
+    <div class="hero-left">
+      <div class="label">Arena God · Adapt to All Situations</div>
+      <div class="hero-count"><span id="god-count">–</span><span class="hero-total">/ <span id="god-total">–</span></span></div>
+      <div class="progress"><div id="god-bar" class="progress-fill"></div></div>
+      <div id="god-breakdown" class="hero-breakdown"></div>
+    </div>
+    <div class="hero-right">
+      <div class="stat-mini"><div class="label">Official (Riot)</div><div id="god-official" class="stat-mini-value gold">–</div></div>
+      <div class="stat-mini"><div class="label">Provable</div><div id="god-provable" class="stat-mini-value">–</div></div>
+    </div>
+  </div>
+
+  <div class="stat-row">
+    <div class="card stat"><div class="label">Games scanned</div><div id="stat-games" class="stat-value">–</div></div>
+    <div class="card stat"><div class="label">Champions owned</div><div id="stat-owned" class="stat-value">–</div></div>
+    <div class="card stat"><div class="label">Wins (provable)</div><div id="stat-wins" class="stat-value">–</div></div>
+    <div class="card stat"><div class="label">Last sync</div><div id="stat-sync" class="stat-value small">–</div></div>
+  </div>
+
+  <div class="card placements-card">
+    <div class="placements-head">
+      <div>
+        <div class="label">Placements</div>
+        <div id="placements-sub" class="dim placements-sub">–</div>
+      </div>
+      <div class="placements-rates">
+        <div class="place-rate"><div class="label">Win rate</div><div id="placements-win" class="place-rate-value gold">–</div></div>
+        <div class="place-rate"><div class="label">Last place</div><div id="placements-last" class="place-rate-value">–</div></div>
+      </div>
+    </div>
+    <div id="placements-chart" class="placements-chart"></div>
+  </div>
+
+  <div class="label section-label">Recent Arena games</div>
+  <div id="recent-strip" class="recent-strip"></div>
+</main>
+
+<main id="view-champions" class="view hidden">
+  <div class="toolbar card">
+    <input id="search" type="search" placeholder="Search champions…">
+    <div class="chip-group" id="filter-group">
+      <button class="fchip active" data-f="needed">Needed</button>
+      <button class="fchip" data-f="all">All</button>
+      <button class="fchip" data-f="won">Won</button>
+      <button class="fchip" data-f="manual">Manual</button>
+    </div>
+    <select id="sort">
+      <option value="alpha">A–Z</option>
+      <option value="mastery">Mastery</option>
+      <option value="recent">Recently played</option>
+    </select>
+    <span id="champ-count" class="dim"></span>
+    <button id="btn-rescan" class="btn ghost">Update scan</button>
+  </div>
+  <div id="champ-grid" class="champ-grid"></div>
+</main>
+
+<main id="view-champselect" class="view hidden">
+  <div id="cs-idle" class="card cs-idle">
+    <div class="label">Champ Select</div>
+    <p class="dim">Waiting for an Arena champ select. This window opens automatically when one starts.</p>
+  </div>
+  <div id="cs-live" class="cs-live hidden">
+    <div class="cs-current card">
+      <div class="label">Current pick</div>
+      <img id="cs-portrait" class="cs-portrait" alt="">
+      <div id="cs-name" class="cs-name">–</div>
+      <div id="cs-status" class="chip-row"></div>
+      <div id="cs-mastery" class="dim"></div>
+    </div>
+    <div class="cs-needed card">
+      <div class="cs-needed-head">
+        <div class="label">Needed picks · owned, by mastery</div>
+        <button id="btn-mini" class="btn ghost small">Mini mode</button>
+      </div>
+      <div id="cs-needed-grid" class="champ-grid compact"></div>
+    </div>
+  </div>
+</main>
+
+<main id="view-settings" class="view hidden">
+  <div class="card settings-card">
+    <div class="label section-label">Player</div>
+    <div class="form-row"><label>Riot ID</label><input id="set-riotid" placeholder="auto-detect from client"><span class="dim" id="set-player-cur"></span></div>
+    <div class="label section-label">Behavior</div>
+    <div class="form-row"><label><input type="checkbox" id="set-autoshow"> Auto-open window on Arena champ select</label></div>
+    <div class="form-row"><label><input type="checkbox" id="set-mini"> Champ-select view starts in mini mode</label></div>
+    <div class="form-row"><label><input type="checkbox" id="set-ontop"> Always on top</label></div>
+    <div class="label section-label">Overlay · Crowd Favorites</div>
+    <div class="form-row">
+      <label>Panel position</label>
+      <button id="btn-overlay-preview" class="btn ghost">Show panel to position it</button>
+      <span id="overlay-preview-msg" class="dim"></span>
+    </div>
+    <div class="label section-label">Data</div>
+    <div class="form-row"><label>Arena tracker URL</label><input id="set-tracker" readonly class="readonly"></div>
+    <div class="form-actions">
+      <button id="btn-save" class="btn primary">Save</button>
+      <button id="btn-fullscan" class="btn ghost">Full rescan</button>
+    </div>
+    <div id="settings-msg" class="dim"></div>
+  </div>
+</main>
+
+<div id="popover" class="popover hidden"></div>
+<script src="/app.js"></script>
+</body>
+</html>

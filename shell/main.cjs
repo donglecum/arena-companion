@@ -1,0 +1,488 @@
+// Arena Companion desktop shell (Electron main process).
+// Spawns the existing Node backend and presents it in a native window with
+// tray, always-on-top, and auto-show on Arena champ select, plus a separate
+// always-on-top Crowd Favorites overlay for champ select or Settings preview.
+const { app, BrowserWindow, Tray, Menu, nativeImage, screen, shell } = require('electron');
+const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const http = require('node:http');
+const { pathToFileURL } = require('node:url');
+const { DEFAULT_OFFSET, clampOffset, dockBounds } = require('./dock.cjs');
+const windows = process.platform === 'win32' ? require('./windows.cjs') : null;
+
+const APP_DIR = path.join(__dirname, '..');
+const ICON_PATH = path.join(APP_DIR, 'assets', 'icon.ico');
+const PORT = process.env.ARENA_COMPANION_PORT ?? 8788;
+const BASE = `http://localhost:${PORT}`;
+const POLL_MS = 2000;
+const OVERLAY_WIDTH = 244;
+const DOCK_POLL_MS = 750;
+const DOCK_TARGET = process.env.ARENA_COMPANION_DOCK_TARGET || 'LeagueClient.exe';
+// Offline verification hook: when set, status is read from this JSON file
+// instead of the backend, and the overlay loads from disk (no server needed).
+const SMOKE_STATUS = process.env.ARENA_COMPANION_SMOKE_STATUS ?? null;
+
+let win = null;
+let tray = null;
+let server = null;
+let quitting = false;
+let wasInArenaChampSelect = false;
+
+let overlayWin = null;
+let overlayShown = false;
+let overlayIgnoringMouse = true;
+let overlayOutsideTicks = 0;
+let overlayHoverTimer = null;
+let overlayLoadTimer = null;
+let overlaySaveTimer = null;
+let overlaySavedPos = null;
+let overlayFreePos = null;
+let overlayOffset = DEFAULT_OFFSET;
+let overlayDockClient = null;
+let overlayDockTimer = null;
+let overlayDragging = false;
+let overlaySettingBounds = false;
+let smokeErrorLogged = '';
+let statusFailures = 0;
+
+function startServer() {
+  server = spawn(process.execPath.includes('electron') ? process.execPath : 'node', ['src/server.ts'], {
+    cwd: APP_DIR,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ARENA_COMPANION_ELECTRON: '1' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  server.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`));
+  server.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
+  server.on('exit', (code) => {
+    console.log(`backend exited (${code}); restarting in 5s`);
+    if (!quitting) setTimeout(startServer, 5000);
+  });
+}
+
+function getJson(pathname) {
+  return new Promise((resolve) => {
+    const req = http.get(`${BASE}${pathname}`, (res) => {
+      let d = '';
+      res.on('data', (c) => (d += c));
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(d));
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(2500, () => req.destroy());
+  });
+}
+
+async function waitForServer(tries = 60) {
+  if (SMOKE_STATUS) return true; // offline verification: no backend required
+  for (let i = 0; i < tries; i++) {
+    const s = await getJson('/api/status');
+    if (s) return true;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+}
+
+function readJsonFile(file, quiet = false) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    if (!quiet) console.error(`failed to read ${file}: ${err.message}`);
+    return null;
+  }
+}
+
+// Single status source: the backend, or a sample JSON file in smoke mode.
+function getStatus() {
+  if (!SMOKE_STATUS) return getJson('/api/status');
+  try {
+    return Promise.resolve(JSON.parse(fs.readFileSync(SMOKE_STATUS, 'utf8')));
+  } catch (err) {
+    const msg = `smoke status read failed: ${err.message}`;
+    if (msg !== smokeErrorLogged) {
+      smokeErrorLogged = msg;
+      console.error(msg);
+    }
+    return Promise.resolve(null);
+  }
+}
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1180,
+    height: 820,
+    minWidth: 480,
+    minHeight: 300,
+    backgroundColor: '#0f1117',
+    autoHideMenuBar: true,
+    show: false,
+    title: 'Arena Companion',
+    icon: ICON_PATH,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  win.loadURL(BASE);
+  win.once('ready-to-show', () => {
+    // Starting the logon task mid-match must not put even the main UI over the game.
+    if (SMOKE_STATUS) return; // offline overlay probe has no backend page
+    if (!windows) return win.show();
+    try {
+      if (!windows.inspect().gameRunning) win.show();
+    } catch (err) {
+      console.error(`window startup visibility check failed: ${err}`);
+    }
+  });
+  win.on('close', (e) => {
+    if (!quitting) {
+      e.preventDefault();
+      win.hide(); // minimize to tray instead of closing
+    }
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+}
+
+function createTray() {
+  // App icon from assets; fall back to the generated dot if the file is missing.
+  let image = nativeImage.createFromPath(ICON_PATH);
+  if (image.isEmpty()) {
+    const svg = Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" rx="4" fill="#1a1d29"/><circle cx="8" cy="8" r="4.5" fill="#c8a04b"/></svg>`,
+    );
+    image = nativeImage.createFromBuffer(svg);
+  }
+  tray = new Tray(image);
+  tray.setToolTip('Arena Companion');
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Show', click: () => { win.show(); win.focus(); } },
+      { label: 'Always on top', type: 'checkbox', checked: false, click: (item) => win.setAlwaysOnTop(item.checked) },
+      { type: 'separator' },
+      { label: 'Quit', click: () => { quitting = true; app.quit(); } },
+    ]),
+  );
+  tray.on('click', () => { win.show(); win.focus(); });
+}
+
+// --- Crowd Favorites overlay -------------------------------------------------
+// Small frameless always-on-top window, independent of the main window and the
+// tray. Shows the real crowd favorites during an Arena champ select, or the
+// Settings position preview (sample cards) while its toggle is on and no real
+// Arena champ select is active.
+
+function overlayStatePath() {
+  return path.join(app.getPath('userData'), 'overlay-window.json');
+}
+
+function defaultOverlayPosition() {
+  const { workArea } = screen.getPrimaryDisplay();
+  return { x: workArea.x + workArea.width - OVERLAY_WIDTH - 16, y: workArea.y + 16 };
+}
+
+function positionOnAnyDisplay(pos) {
+  return screen.getAllDisplays().some((d) => {
+    const a = d.workArea;
+    return pos.x < a.x + a.width && pos.x + OVERLAY_WIDTH > a.x && pos.y < a.y + a.height && pos.y + 40 > a.y;
+  });
+}
+
+function overlayPosition() {
+  const saved = readJsonFile(overlayStatePath(), true);
+  if (saved && Number.isFinite(saved.offset) && saved.offset >= 0) overlayOffset = Math.round(saved.offset);
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) && positionOnAnyDisplay(saved)) return { x: saved.x, y: saved.y };
+  return defaultOverlayPosition();
+}
+
+function saveOverlayPosition() {
+  clearTimeout(overlaySaveTimer);
+  overlaySaveTimer = setTimeout(() => {
+    overlaySaveTimer = null;
+    const state = { ...overlayFreePos, offset: overlayOffset };
+    if (overlaySavedPos && Object.keys(state).every((key) => state[key] === overlaySavedPos[key])) return;
+    try {
+      fs.writeFileSync(overlayStatePath(), JSON.stringify(state));
+      overlaySavedPos = state;
+    } catch (err) {
+      console.error(`overlay position save failed: ${err.message}`);
+    }
+  }, 500);
+}
+
+function setOverlayBounds(bounds) {
+  const current = overlayWin.getBounds();
+  if (current.x === bounds.x && current.y === bounds.y && current.height === bounds.height) return;
+  overlaySettingBounds = true;
+  try {
+    overlayWin.setBounds(bounds);
+  } finally {
+    overlaySettingBounds = false;
+  }
+}
+
+function updateDock(rect) {
+  if (!overlayWin || overlayWin.isDestroyed() || overlayDragging) return;
+  // screenToDipRect(null, …) uses the display containing the physical client
+  // rectangle, not the overlay's previous display (important across monitors).
+  overlayDockClient = rect ? screen.screenToDipRect(null, rect) : null;
+  if (overlayDockClient) {
+    overlayOffset = clampOffset(overlayOffset, overlayDockClient.height, overlayWin.getBounds().height);
+    setOverlayBounds(dockBounds(overlayDockClient, overlayWin.getBounds(), overlayOffset));
+  } else {
+    const b = overlayWin.getBounds();
+    setOverlayBounds({ ...b, ...overlayFreePos });
+  }
+}
+
+function overlayMoved() {
+  if (overlaySettingBounds || !overlayShown) return;
+  overlayDragging = false;
+  const b = overlayWin.getBounds();
+  if (overlayDockClient) {
+    overlayOffset = clampOffset(b.y - overlayDockClient.y, overlayDockClient.height, b.height);
+    setOverlayBounds(dockBounds(overlayDockClient, b, overlayOffset));
+  } else {
+    overlayFreePos = { x: b.x, y: b.y };
+  }
+  saveOverlayPosition();
+}
+
+function loadOverlayPage() {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  // Smoke mode loads the self-contained markup from disk, so no backend is needed.
+  const url = SMOKE_STATUS ? pathToFileURL(path.join(APP_DIR, 'src', 'ui', 'overlay.html')).href : `${BASE}/overlay.html`;
+  // Failures are reported (and retried) by the did-fail-load handler.
+  overlayWin.loadURL(url).catch(() => {});
+}
+
+function createOverlay() {
+  const pos = overlayPosition();
+  overlayWin = new BrowserWindow({
+    x: pos.x,
+    y: pos.y,
+    width: OVERLAY_WIDTH,
+    height: 120,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    show: false,
+    alwaysOnTop: true,
+    title: 'Crowd Favorites',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  overlayWin.setAlwaysOnTop(true, 'screen-saver');
+  overlayWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  overlayWin.webContents.on('did-fail-load', (_e, code, desc, _url, isMainFrame) => {
+    if (!isMainFrame || quitting) return;
+    console.error(`overlay load failed (${code} ${desc}); retrying in 3s`);
+    if (overlayLoadTimer) clearTimeout(overlayLoadTimer);
+    overlayLoadTimer = setTimeout(loadOverlayPage, 3000);
+  });
+  // will-move is user-only on Windows; setBounds never starts a drag.
+  overlayWin.on('will-move', () => { if (overlayShown) overlayDragging = true; });
+  overlayWin.on('moved', overlayMoved);
+  overlayFreePos = pos;
+  overlaySavedPos = { ...pos, offset: overlayOffset };
+  overlayWin.on('close', (e) => {
+    if (quitting) return;
+    e.preventDefault(); // never close; visibility is driven by champ select state
+    setOverlayShown(false, 'closed by user');
+  });
+  // Click-through until the cursor is over the panel, so the overlay never
+  // swallows clicks; hovering re-enables input for dragging.
+  overlayWin.setIgnoreMouseEvents(true);
+  loadOverlayPage();
+  console.log(`overlay window ready at ${pos.x},${pos.y} (${OVERLAY_WIDTH}px wide; click-through, interactive while hovered)`);
+}
+
+function overlayHoverCheck() {
+  if (!overlayWin || overlayWin.isDestroyed() || !overlayWin.isVisible()) return;
+  const b = overlayWin.getBounds();
+  const p = screen.getCursorScreenPoint();
+  const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+  // Hand keyboard focus back to the game once the cursor has stayed off the
+  // panel (a drag keeps the cursor on it, so the drag loop is never disturbed).
+  if (inside) {
+    overlayOutsideTicks = 0;
+  } else if (++overlayOutsideTicks === 5 && overlayWin.isFocused()) {
+    overlayWin.blur();
+  }
+  if (inside === !overlayIgnoringMouse) return;
+  overlayIgnoringMouse = !inside;
+  overlayWin.setIgnoreMouseEvents(!inside);
+  console.log(`overlay input: ${inside ? 'interactive' : 'click-through'} (cursor ${p.x},${p.y}; panel ${b.x},${b.y} ${b.width}x${b.height})`);
+}
+
+let dockReadError = '';
+let lastDockLog = '';
+function trackOverlayDock() {
+  if (!windows || !overlayShown || overlayDragging) return;
+  try {
+    const { gameRunning, rect } = windows.inspect(DOCK_TARGET);
+    if (gameRunning) {
+      setOverlayShown(false, 'League game running');
+      return;
+    }
+    const signature = JSON.stringify(rect);
+    if (signature !== lastDockLog) {
+      console.log(`overlay dock ${DOCK_TARGET}: ${signature}`);
+      lastDockLog = signature;
+    }
+    updateDock(rect);
+    dockReadError = '';
+  } catch (err) {
+    if (dockReadError !== String(err)) console.error(`overlay dock unavailable: ${err}`);
+    dockReadError = String(err);
+    updateDock(null);
+  }
+}
+
+function setOverlayShown(shown, reason) {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  if (shown === overlayShown) return;
+  if (shown) {
+    // Check before showInactive: a screen-saver-level panel must never flash over a match.
+    if (windows) {
+      try {
+        const { gameRunning, rect } = windows.inspect(DOCK_TARGET);
+        if (gameRunning) return;
+        updateDock(rect);
+      } catch (err) {
+        if (dockReadError !== String(err)) console.error(`overlay dock unavailable: ${err}`);
+        dockReadError = String(err);
+      }
+    }
+    overlayShown = true;
+    overlayWin.showInactive();
+    overlayWin.setAlwaysOnTop(true, 'screen-saver');
+    overlayHoverTimer = setInterval(overlayHoverCheck, 200);
+    overlayDockTimer = setInterval(trackOverlayDock, DOCK_POLL_MS);
+    console.log(`overlay shown (${reason})`);
+  } else {
+    overlayShown = false;
+    if (overlayHoverTimer) {
+      clearInterval(overlayHoverTimer);
+      overlayHoverTimer = null;
+    }
+    clearInterval(overlayDockTimer);
+    overlayDockTimer = null;
+    overlayDragging = false;
+    if (!overlayIgnoringMouse) {
+      overlayIgnoringMouse = true;
+      overlayWin.setIgnoreMouseEvents(true);
+    }
+    overlayWin.hide();
+    console.log(`overlay hidden (${reason})`);
+  }
+}
+
+// Hand the status to the renderer; JSON is double-encoded so the page parses a
+// plain string literal (no interpolation of untrusted data into code).
+function pushOverlayStatus(status) {
+  if (!overlayWin || overlayWin.isDestroyed()) return Promise.resolve(false);
+  const literal = JSON.stringify(JSON.stringify(status ?? null));
+  return overlayWin.webContents
+    .executeJavaScript(`window.__applyStatus(JSON.parse(${literal}))`)
+    .then(() => true)
+    .catch(() => false);
+}
+
+// Shrink/grow to fit the rendered cards (bounded), keeping the position.
+async function fitOverlayHeight() {
+  if (!overlayWin || overlayWin.isDestroyed() || !overlayShown) return;
+  try {
+    const h = await overlayWin.webContents.executeJavaScript(
+      'Math.ceil(document.getElementById("panel").getBoundingClientRect().height)',
+    );
+    if (!overlayShown || typeof h !== 'number' || !Number.isFinite(h)) return;
+    const height = Math.max(48, Math.min(560, h + 2, overlayDockClient?.height ?? Infinity));
+    const b = overlayWin.getBounds();
+    if (Math.abs(b.height - height) > 1) {
+      if (overlayDockClient) setOverlayBounds(dockBounds(overlayDockClient, { ...b, height }, overlayOffset));
+      else setOverlayBounds({ ...b, height });
+    }
+  } catch {
+    /* renderer not ready */
+  }
+}
+
+// Reason string for the overlay-hide log line (helps diagnose champ select exits).
+function overlayHideReason(s, favorites) {
+  if (s.crowdFavoritesActive !== true) return 'not in arena champ select';
+  return favorites.length === 0 ? 'crowd favorites empty' : 'inactive';
+}
+
+// Auto-show when Arena champ select starts; honor always-on-top config.
+async function pollStatus() {
+  const s = await getStatus();
+  if (!win) return;
+  if (!s) {
+    // Backend unreachable: keep the last state briefly, then hide the overlay so
+    // it can never outlive the champ select it belongs to.
+    if (++statusFailures >= 8) setOverlayShown(false, 'status unavailable');
+    return;
+  }
+  statusFailures = 0;
+  const inArenaCs = !!(s.champSelect && s.champSelect.available && s.champSelect.isArena);
+  if (inArenaCs && !wasInArenaChampSelect && s.config?.autoShow !== false) {
+    win.show();
+    win.focus();
+    win.webContents.executeJavaScript(`location.hash = '#/champselect'`).catch(() => {});
+  }
+  wasInArenaChampSelect = inArenaCs;
+  if (s.config?.alwaysOnTop != null && win.isAlwaysOnTop() !== !!s.config.alwaysOnTop) {
+    win.setAlwaysOnTop(!!s.config.alwaysOnTop);
+  }
+
+  // Crowd favorites overlay — the real list during an Arena champ select
+  // (which supersedes the preview, even when the real list is empty), otherwise
+  // the Settings position preview while its toggle is on.
+  const favorites = Array.isArray(s.crowdFavorites) ? s.crowdFavorites : [];
+  const realActive = s.crowdFavoritesActive === true;
+  const previewActive = s.overlayPreview === true && !realActive;
+  const overlayShouldShow = realActive ? favorites.length > 0 : previewActive;
+  await pushOverlayStatus(s);
+  if (overlayShouldShow) {
+    setOverlayShown(true, realActive ? `crowd favorites active (${favorites.length})` : 'position preview enabled');
+    fitOverlayHeight();
+  } else {
+    setOverlayShown(false, overlayHideReason(s, favorites));
+  }
+}
+
+app.whenReady().then(async () => {
+  app.setAppUserModelId('com.arena.companion');
+  if (SMOKE_STATUS) console.log(`smoke mode: reading status from ${SMOKE_STATUS}`);
+  else startServer();
+  const up = await waitForServer();
+  if (!up) console.error('backend did not come up in time; window may show an error page');
+  createWindow();
+  createTray();
+  createOverlay();
+  setInterval(pollStatus, POLL_MS);
+});
+
+app.on('before-quit', () => {
+  quitting = true;
+  clearInterval(overlayHoverTimer);
+  clearInterval(overlayDockTimer);
+  clearTimeout(overlayLoadTimer);
+  clearTimeout(overlaySaveTimer);
+  if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy();
+  if (server && !server.killed) server.kill();
+});
+
+app.on('window-all-closed', (e) => {
+  // stay alive in the tray
+  e.preventDefault?.();
+});

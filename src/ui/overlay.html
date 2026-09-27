@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Crowd Favorites</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    color-scheme: dark;
+    font: 12px/1.35 "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: #e9e6e1;
+  }
+  /* Whole panel is the drag handle; the shell toggles click-through by hover. */
+  #panel {
+    -webkit-app-region: drag;
+    box-sizing: border-box;
+    padding: 7px 9px 6px;
+    background: rgba(14, 16, 22, .93);
+    border: 1px solid rgba(200, 160, 75, .5);
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+  }
+  #panel.hidden { display: none; }
+  #head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid rgba(200, 160, 75, .22);
+  }
+  #head .dot { width: 7px; height: 7px; border-radius: 50%; background: #c8a04b; flex: none; }
+  #title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    letter-spacing: .02em;
+    color: #c8a04b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #summary { color: #9aa0ae; font-variant-numeric: tabular-nums; }
+  #list { list-style: none; margin: 4px 0 0; padding: 0; }
+  #list li { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
+  #list img {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    border-radius: 6px;
+    object-fit: cover;
+    background: rgba(255, 255, 255, .07);
+  }
+  #list .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #list .mark { width: 16px; flex: none; text-align: center; font-weight: 700; font-size: 13px; }
+  li.won .mark { color: #5fce80; }
+  li.needed .mark { color: #e2685f; }
+  li.unknown .mark { color: #8b91a0; }
+  #foot {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, .07);
+    color: #8b91a0;
+    font-size: 10.5px;
+  }
+  #foot.hidden { display: none; }
+</style>
+</head>
+<body>
+<div id="panel" class="hidden">
+  <div id="head">
+    <span class="dot"></span>
+    <span id="title">Crowd Favorites</span>
+    <span id="summary"></span>
+  </div>
+  <ul id="list"></ul>
+  <div id="foot" class="hidden"></div>
+</div>
+<script>
+(function () {
+  'use strict';
+
+  var panelEl = document.getElementById('panel');
+  var titleEl = document.getElementById('title');
+  var listEl = document.getElementById('list');
+  var summaryEl = document.getElementById('summary');
+  var footEl = document.getElementById('foot');
+  var rows = new Map();
+  var version = null;
+  var lastPush = 0;
+
+  function portraitUrl(image) {
+    if (!version || typeof image !== 'string' || !image) return '';
+    return 'https://ddragon.leagueoflegends.com/cdn/' +
+      encodeURIComponent(version) + '/img/champion/' + encodeURIComponent(image);
+  }
+
+  // Sample cards for the Settings position preview (never real LCU data): one
+  // card per win state (won/needed/unknown) and no portrait.
+  var SAMPLE_CARDS = [
+    { id: -1, name: 'Sample champion · won', image: '', won: true },
+    { id: -2, name: 'Sample champion · needed', image: '', won: false },
+    { id: -3, name: 'Sample champion · unknown', image: '', won: null },
+  ];
+
+  function makeRow() {
+    var li = document.createElement('li');
+    var img = document.createElement('img');
+    img.alt = '';
+    img.draggable = false;
+    img.addEventListener('error', function () { img.style.visibility = 'hidden'; });
+    var name = document.createElement('span');
+    name.className = 'name';
+    var mark = document.createElement('span');
+    mark.className = 'mark';
+    li.appendChild(img);
+    li.appendChild(name);
+    li.appendChild(mark);
+    return { li: li, img: img, name: name, mark: mark, src: null, won: null, text: null };
+  }
+
+  function setRowStatus(row, won, name) {
+    var state = won === true ? 'won' : won === false ? 'needed' : 'unknown';
+    row.li.className = state;
+    row.li.setAttribute('aria-label', name + ' — ' + (won === true ? 'won' : won === false ? 'needed' : 'unknown'));
+    row.mark.textContent = won === true ? '✓' : won === false ? '✗' : '?';
+  }
+
+  // Diffed render: only touches the DOM/attributes that actually changed so
+  // portraits are not reloaded on every poll.
+  function applyStatus(status) {
+    if (!status || typeof status !== 'object') return;
+    var ver = typeof status.ddragonVersion === 'string' && status.ddragonVersion ? status.ddragonVersion : null;
+    version = ver;
+
+    var favorites = Array.isArray(status.crowdFavorites) ? status.crowdFavorites : [];
+    // Position preview from Settings, shown only outside a real Arena champ
+    // select — a real champ select supersedes it even with an empty list.
+    var realActive = status.crowdFavoritesActive === true;
+    var preview = status.overlayPreview === true && !realActive;
+    if (preview) favorites = SAMPLE_CARDS;
+    var active = preview || (realActive && favorites.length > 0);
+    panelEl.classList.toggle('hidden', !active);
+    var label = preview ? 'Crowd Favorites · preview' : 'Crowd Favorites';
+    if (titleEl.textContent !== label) titleEl.textContent = label;
+    document.title = label + ' (' + favorites.length + ')';
+    if (!active) return;
+
+    var seen = new Set();
+    var won = 0;
+    var lost = 0;
+    var unknown = 0;
+
+    favorites.forEach(function (fav, index) {
+      var key = fav && Number.isFinite(fav.id) ? 'id:' + fav.id : 'i:' + index;
+      seen.add(key);
+      var row = rows.get(key);
+      if (!row) {
+        row = makeRow();
+        rows.set(key, row);
+      }
+      var name = fav && typeof fav.name === 'string' ? fav.name : '';
+      var src = portraitUrl(fav && typeof fav.image === 'string' ? fav.image : '');
+      if (row.src !== src) {
+        row.src = src;
+        if (src) {
+          row.img.style.visibility = '';
+          row.img.src = src;
+        } else {
+          row.img.removeAttribute('src');
+          row.img.style.visibility = 'hidden';
+        }
+      }
+      if (row.name.textContent !== name) row.name.textContent = name;
+      var state = fav && fav.won === true ? true : fav && fav.won === false ? false : null;
+      if (row.won !== state || row.text !== name) {
+        row.won = state;
+        row.text = name;
+        setRowStatus(row, state, name);
+      }
+      if (state === true) won++;
+      else if (state === false) lost++;
+      else unknown++;
+      if (listEl.children[index] !== row.li) listEl.insertBefore(row.li, listEl.children[index] || null);
+    });
+
+    rows.forEach(function (row, key) {
+      if (seen.has(key)) return;
+      row.li.remove();
+      rows.delete(key);
+    });
+
+    var summary = won + '/' + favorites.length;
+    if (summaryEl.textContent !== summary) summaryEl.textContent = summary;
+    var parts = [won + ' won', lost + ' needed'];
+    if (unknown) parts.push(unknown + ' unknown');
+    var footer = parts.join(' · ');
+    if (footEl.textContent !== footer) footEl.textContent = footer;
+    if (footEl.classList.contains('hidden')) footEl.classList.remove('hidden');
+  }
+
+  // Status is pushed by the Electron shell (double-encoded JSON, parsed here).
+  window.__applyStatus = function (status) {
+    lastPush = Date.now();
+    applyStatus(status);
+  };
+
+  // Standalone fallback for browser/manual inspection: if the shell is not
+  // pushing (e.g. page opened directly), poll the API itself.
+  if (/^https?:$/.test(location.protocol)) {
+    setInterval(async function () {
+      if (Date.now() - lastPush < 4000) return; // shell is driving the overlay
+      try {
+        var res = await fetch('/api/status');
+        if (res.ok) applyStatus(await res.json());
+      } catch (err) {
+        /* backend briefly unreachable; keep last state */
+      }
+    }, 2000);
+  }
+})();
+</script>
+</body>
+</html>

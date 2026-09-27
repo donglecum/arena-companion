@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#171a24"/>
+      <stop offset="1" stop-color="#0b0d13"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="320" x2="0" y2="736" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#eccf8a"/>
+      <stop offset="0.35" stop-color="#c8a04b"/>
+      <stop offset="1" stop-color="#a1762a"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6fd694"/>
+      <stop offset="1" stop-color="#3a9a5c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#c8a04b" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#c8a04b" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <circle cx="512" cy="520" r="430" fill="url(#glow)"/>
+
+  <g>
+    <!-- horn: short fat cone, rounded tip, top edge near-continuous with face -->
+    <path d="M 282 332 C 256 337 234 346 222 354 Q 206 363 204 380 Q 206 396 222 404 C 234 412 256 421 282 428 Z" fill="url(#gold)"/>
+    <!-- face slab -->
+    <rect x="280" y="320" width="500" height="130" rx="10" fill="url(#gold)"/>
+    <!-- face sheen -->
+    <rect x="296" y="330" width="468" height="12" rx="6" fill="#f2dda2" opacity="0.45"/>
+    <!-- under-face step -->
+    <rect x="320" y="450" width="440" height="36" rx="6" fill="#875f1d"/>
+    <!-- neck -->
+    <path d="M 420 486 L 640 486 L 612 580 L 448 580 Z" fill="url(#gold)"/>
+    <!-- base bevel -->
+    <rect x="400" y="576" width="260" height="42" rx="10" fill="url(#gold)"/>
+    <!-- base -->
+    <rect x="330" y="612" width="400" height="124" rx="16" fill="url(#gold)"/>
+    <!-- base sheen -->
+    <rect x="346" y="624" width="368" height="12" rx="6" fill="#f2dda2" opacity="0.3"/>
+  </g>
+
+  <circle cx="782" cy="262" r="112" fill="url(#green)" stroke="#0d0f15" stroke-width="22"/>
+  <path d="M 732 264 L 767 302 L 836 228" fill="none" stroke="#ffffff" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

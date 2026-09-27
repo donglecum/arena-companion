@@ -1,0 +1,23 @@
+{
+  "name": "arena-companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only League LCU companion for Arena win tracking",
+  "scripts": {
+    "probe": "node src/probe.ts",
+    "start": "node src/server.ts",
+    "shell": "electron shell/main.cjs",
+    "checklist": "node src/checklist.ts",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "devDependencies": {
+    "electron": "^43.2.0"
+  },
+  "dependencies": {
+    "koffi": "^3.3.2"
+  }
+}
