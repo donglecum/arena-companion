@@ -19,6 +19,10 @@ const POLL_MS = 2000;
 const OVERLAY_WIDTH = 244;
 const DOCK_POLL_MS = 750;
 const DOCK_TARGET = process.env.ARENA_COMPANION_DOCK_TARGET || 'LeagueClient.exe';
+// LeagueClientUx.exe owns the actual client UI window (champ select, lobby);
+// LeagueClient.exe is the lockfile core process and owns no visible windows.
+// ARENA_COMPANION_DOCK_TARGET overrides stay isolated: no aliases then.
+const DOCK_ALIASES = process.env.ARENA_COMPANION_DOCK_TARGET ? [] : ['LeagueClientUx.exe'];
 // Offline verification hook: when set, status is read from this JSON file
 // instead of the backend, and the overlay loads from disk (no server needed).
 const SMOKE_STATUS = process.env.ARENA_COMPANION_SMOKE_STATUS ?? null;
@@ -328,14 +332,14 @@ let lastDockLog = '';
 function trackOverlayDock() {
   if (!windows || !overlayShown || overlayDragging) return;
   try {
-    const { gameRunning, rect } = windows.inspect(DOCK_TARGET);
+    const { gameRunning, rect, source } = windows.inspect(DOCK_TARGET, DOCK_ALIASES);
     if (gameRunning) {
       setOverlayShown(false, 'League game running');
       return;
     }
     const signature = JSON.stringify(rect);
     if (signature !== lastDockLog) {
-      console.log(`overlay dock ${DOCK_TARGET}: ${signature}`);
+      console.log(`overlay dock ${source ?? DOCK_TARGET}: ${signature}`);
       lastDockLog = signature;
     }
     updateDock(rect);
@@ -354,7 +358,7 @@ function setOverlayShown(shown, reason) {
     // Check before showInactive: a screen-saver-level panel must never flash over a match.
     if (windows) {
       try {
-        const { gameRunning, rect } = windows.inspect(DOCK_TARGET);
+        const { gameRunning, rect } = windows.inspect(DOCK_TARGET, DOCK_ALIASES);
         if (gameRunning) return;
         updateDock(rect);
       } catch (err) {
