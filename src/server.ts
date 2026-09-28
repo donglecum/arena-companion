@@ -1,7 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { exec } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseLockfile, type Lockfile } from './lockfile.ts';
 import { LcuClient } from './lcu.ts';
@@ -23,22 +22,17 @@ const CONFIG_PATH = process.env.ARENA_COMPANION_CONFIG ?? 'companion-config.json
 const OWNED_REFRESH_MS = 24 * 3600_000;
 const CROWD_FAVORITES_PATH = '/lol-lobby-team-builder/champ-select/v1/crowd-favorite-champion-list';
 const CROWD_FAVORITES_REFRESH_MS = 15_000;
-// The Electron shell spawns the backend with this set, so an Arena champ select
-// must not also pop the backend-only Edge app window.
-const ELECTRON_HOST = process.env.ARENA_COMPANION_ELECTRON === '1';
 
 interface CompanionConfig {
   gameName?: string;
   tagLine?: string;
   regionLabel?: string;
-  autoShow?: boolean; // pop window on Arena champ select (default true)
   miniMode?: boolean; // start champ-select view in mini mode
   alwaysOnTop?: boolean;
 }
 
 const DEFAULT_CONFIG: CompanionConfig = {
   regionLabel: 'NA',
-  autoShow: true,
   miniMode: false,
   alwaysOnTop: false,
 };
@@ -93,7 +87,9 @@ const state: {
 };
 
 try {
-  state.config = { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) };
+  const loaded = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  delete loaded.autoShow; // discard the retired main-window popup preference
+  state.config = { ...DEFAULT_CONFIG, ...loaded };
 } catch {
   /* first run */
 }
@@ -437,10 +433,6 @@ async function pollLcu() {
         }
       } catch {
         /* keep previous */
-      }
-      if (isArena && state.config.autoShow && !ELECTRON_HOST) {
-        console.log('Arena champ select detected — opening companion UI (Edge app window)');
-        exec('start "" "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" --app=http://localhost:8788/#/champselect');
       }
     }
     try {

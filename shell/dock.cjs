@@ -16,8 +16,9 @@ function dockBounds(client, panel, offset, display) {
   const outsideX = client.x + client.width + MARGIN;
   let x = outsideX;
   if (display) {
+    const minX = display.x + MARGIN;
     const maxX = display.x + display.width - panel.width - MARGIN;
-    if (outsideX > maxX) x = insideX;
+    if (outsideX < minX || outsideX > maxX) x = Math.max(minX, Math.min(insideX, maxX));
   }
   return { x: Math.round(x), y, width: panel.width, height: panel.height };
 }

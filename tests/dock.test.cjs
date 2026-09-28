@@ -16,10 +16,10 @@ test('with display bounds, outside is used when it fits and inside is the fallba
   // Client at x=594 width=1536 -> outside end 2139+244+9 <= 2752: outside.
   assert.deepEqual(dockBounds({ x: 594, y: 117, width: 1536, height: 864 }, panel, 16, display),
     { x: 2139, y: 133, width: 244, height: 120 });
-  // Narrow display: no room outside -> hug the inside edge instead of floating off-screen.
+  // Client itself extends past the display; clamp the inside fallback onscreen.
   const small = { x: 0, y: 0, width: 1920, height: 1080 };
   assert.deepEqual(dockBounds({ x: 300, y: 100, width: 1700, height: 800 }, panel, 16, small),
-    { x: 1747, y: 116, width: 244, height: 120 });
+    { x: 1667, y: 116, width: 244, height: 120 });
 });
 
 test('vertical dragging clamps to the client area even when the panel is taller', () => {

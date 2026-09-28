@@ -1,7 +1,7 @@
 // Arena Companion desktop shell (Electron main process).
 // Spawns the existing Node backend and presents it in a native window with
-// tray, always-on-top, and auto-show on Arena champ select, plus a separate
-// always-on-top Crowd Favorites overlay for champ select or Settings preview.
+// tray plus a separate always-on-top Crowd Favorites overlay for champ select
+// or Settings preview. The main window opens only when requested from the tray.
 const { app, BrowserWindow, Tray, Menu, nativeImage, screen, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -32,7 +32,6 @@ let win = null;
 let tray = null;
 let server = null;
 let quitting = false;
-let wasInArenaChampSelect = false;
 
 let overlayWin = null;
 let overlayShown = false;
@@ -131,16 +130,6 @@ function createWindow() {
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   win.loadURL(BASE);
-  win.once('ready-to-show', () => {
-    // Starting the logon task mid-match must not put even the main UI over the game.
-    if (SMOKE_STATUS) return; // offline overlay probe has no backend page
-    if (!windows) return win.show();
-    try {
-      if (!windows.inspect().gameRunning) win.show();
-    } catch (err) {
-      console.error(`window startup visibility check failed: ${err}`);
-    }
-  });
   win.on('close', (e) => {
     if (!quitting) {
       e.preventDefault();
@@ -230,6 +219,10 @@ function setOverlayBounds(bounds) {
   }
 }
 
+function dockOverlayBounds(bounds) {
+  return dockBounds(overlayDockClient, bounds, overlayOffset, screen.getDisplayMatching(overlayDockClient).workArea);
+}
+
 function updateDock(rect) {
   if (!overlayWin || overlayWin.isDestroyed() || overlayDragging) return;
   // screenToDipRect(null, …) uses the display containing the physical client
@@ -237,7 +230,7 @@ function updateDock(rect) {
   overlayDockClient = rect ? screen.screenToDipRect(null, rect) : null;
   if (overlayDockClient) {
     overlayOffset = clampOffset(overlayOffset, overlayDockClient.height, overlayWin.getBounds().height);
-    setOverlayBounds(dockBounds(overlayDockClient, overlayWin.getBounds(), overlayOffset));
+    setOverlayBounds(dockOverlayBounds(overlayWin.getBounds()));
   } else {
     const b = overlayWin.getBounds();
     setOverlayBounds({ ...b, ...overlayFreePos });
@@ -250,7 +243,7 @@ function overlayMoved() {
   const b = overlayWin.getBounds();
   if (overlayDockClient) {
     overlayOffset = clampOffset(b.y - overlayDockClient.y, overlayDockClient.height, b.height);
-    setOverlayBounds(dockBounds(overlayDockClient, b, overlayOffset));
+    setOverlayBounds(dockOverlayBounds(b));
   } else {
     overlayFreePos = { x: b.x, y: b.y };
   }
@@ -413,7 +406,7 @@ async function fitOverlayHeight() {
     const height = Math.max(48, Math.min(560, h + 2, overlayDockClient?.height ?? Infinity));
     const b = overlayWin.getBounds();
     if (Math.abs(b.height - height) > 1) {
-      if (overlayDockClient) setOverlayBounds(dockBounds(overlayDockClient, { ...b, height }, overlayOffset));
+      if (overlayDockClient) setOverlayBounds(dockOverlayBounds({ ...b, height }));
       else setOverlayBounds({ ...b, height });
     }
   } catch {
@@ -427,7 +420,7 @@ function overlayHideReason(s, favorites) {
   return favorites.length === 0 ? 'crowd favorites empty' : 'inactive';
 }
 
-// Auto-show when Arena champ select starts; honor always-on-top config.
+// Keep the main window where the user left it; only the overlay is automatic.
 async function pollStatus() {
   const s = await getStatus();
   if (!win) return;
@@ -438,13 +431,6 @@ async function pollStatus() {
     return;
   }
   statusFailures = 0;
-  const inArenaCs = !!(s.champSelect && s.champSelect.available && s.champSelect.isArena);
-  if (inArenaCs && !wasInArenaChampSelect && s.config?.autoShow !== false) {
-    win.show();
-    win.focus();
-    win.webContents.executeJavaScript(`location.hash = '#/champselect'`).catch(() => {});
-  }
-  wasInArenaChampSelect = inArenaCs;
   if (s.config?.alwaysOnTop != null && win.isAlwaysOnTop() !== !!s.config.alwaysOnTop) {
     win.setAlwaysOnTop(!!s.config.alwaysOnTop);
   }

@@ -275,7 +275,6 @@ function renderSettings() {
   if (document.activeElement === $('set-riotid')) return; // don't clobber typing
   $('set-riotid').value = cfg.gameName ? `${cfg.gameName}#${cfg.tagLine ?? ''}` : '';
   $('set-player-cur').textContent = DATA.player ? `(current: ${DATA.player})` : '';
-  $('set-autoshow').checked = cfg.autoShow !== false;
   $('set-mini').checked = !!cfg.miniMode;
   $('set-ontop').checked = !!cfg.alwaysOnTop;
   $('set-tracker').value = 'https://arena.scrolab.com';
@@ -284,7 +283,6 @@ function renderSettings() {
 $('btn-save').onclick = async () => {
   const riotId = $('set-riotid').value.trim();
   const body = {
-    autoShow: $('set-autoshow').checked,
     miniMode: $('set-mini').checked,
     alwaysOnTop: $('set-ontop').checked,
   };
