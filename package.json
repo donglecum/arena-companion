@@ -1,6 +1,6 @@
 {
   "name": "arena-companion",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "main": "shell/main.cjs",
@@ -21,6 +21,7 @@
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "koffi": "^3.3.2"
   },
   "build": {
@@ -46,11 +47,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -64,6 +69,13 @@
     },
     "portable": {
       "artifactName": "${productName} ${version}.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "donglecum",
+        "repo": "arena-companion"
+      }
+    ]
   }
 }

@@ -9,6 +9,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { pathToFileURL } = require('node:url');
 const { DEFAULT_OFFSET, clampOffset, dockBounds } = require('./dock.cjs');
+const { startAutoUpdate } = require('./updater.cjs');
 const windows = process.platform === 'win32' ? require('./windows.cjs') : null;
 
 const APP_DIR = path.join(__dirname, '..');
@@ -466,6 +467,7 @@ async function pollStatus() {
 
 app.whenReady().then(async () => {
   app.setAppUserModelId('com.arena.companion');
+  startAutoUpdate(app);
   if (SMOKE_STATUS) console.log(`smoke mode: reading status from ${SMOKE_STATUS}`);
   else startServer();
   const up = await waitForServer();

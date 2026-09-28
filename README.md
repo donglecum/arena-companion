@@ -4,6 +4,8 @@ Read-only League LCU companion for Arena win tracking, running on WINDOWSPC as a
 
 > **Just want the app?** Download **Arena Companion Setup.exe** from the [latest release](https://github.com/donglecum/arena-companion/releases/latest). Works with whichever Riot account your League client is logged into.
 
+> Updates install silently on app start (packaged builds check GitHub Releases; the portable build doesn't auto-update).
+
 ## What it does
 
 - Connects to the running League client via the LCU API (lockfile auth, local TLS only).
