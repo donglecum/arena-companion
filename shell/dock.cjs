@@ -7,13 +7,19 @@ function clampOffset(offset, clientHeight, panelHeight) {
 
 // All inputs are DIP; convert the entire physical client rectangle in Electron
 // first, so origin and size obey the target monitor's scale factor.
-function dockBounds(client, panel, offset) {
-  return {
-    x: Math.round(client.x + Math.max(0, client.width - panel.width - MARGIN)),
-    y: Math.round(client.y + clampOffset(offset, client.height, panel.height)),
-    width: panel.width,
-    height: panel.height,
-  };
+// The panel sits OUTSIDE the client's right edge (MARGIN gap). When display
+// bounds are provided and there is no room outside, it falls back to hugging
+// the client's right edge from the inside so it can never float off-screen.
+function dockBounds(client, panel, offset, display) {
+  const y = Math.round(client.y + clampOffset(offset, client.height, panel.height));
+  const insideX = client.x + Math.max(0, client.width - panel.width - MARGIN);
+  const outsideX = client.x + client.width + MARGIN;
+  let x = outsideX;
+  if (display) {
+    const maxX = display.x + display.width - panel.width - MARGIN;
+    if (outsideX > maxX) x = insideX;
+  }
+  return { x: Math.round(x), y, width: panel.width, height: panel.height };
 }
 
 module.exports = { DEFAULT_OFFSET, clampOffset, dockBounds };
