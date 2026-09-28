@@ -3,21 +3,67 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "shell/main.cjs",
   "description": "Read-only League LCU companion for Arena win tracking",
   "scripts": {
     "probe": "node src/probe.ts",
     "start": "node src/server.ts",
     "shell": "electron shell/main.cjs",
     "checklist": "node src/checklist.ts",
-    "test": "node --test"
+    "test": "node --test",
+    "dist": "electron-builder --win"
   },
   "engines": {
     "node": ">=22.18"
   },
   "devDependencies": {
-    "electron": "^43.2.0"
+    "electron": "^43.2.0",
+    "electron-builder": "^26.0.12"
   },
   "dependencies": {
     "koffi": "^3.3.2"
+  },
+  "build": {
+    "appId": "com.scrolab.arenacompanion",
+    "productName": "Arena Companion",
+    "asar": false,
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "shell/**",
+      "src/**",
+      "assets/**",
+      "package.json",
+      "!logs/**",
+      "!cache/**",
+      "!companion-config.json",
+      "!**/*.bak*"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Arena Companion",
+      "artifactName": "${productName} Setup ${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName} ${version}.${ext}"
+    }
   }
 }
