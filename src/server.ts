@@ -16,6 +16,14 @@ import { LcuSubscriber, type LcuEvent } from './ws.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.join(__dirname, 'ui');
+/** App version from package.json (shown in the UI header); null if unreadable. */
+const APP_VERSION: string | null = (() => {
+  try {
+    return String(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version);
+  } catch {
+    return null;
+  }
+})();
 
 const LOCKFILE_PATH = process.env.LCU_LOCKFILE ?? 'C:\\Riot Games\\League of Legends\\lockfile';
 const TRACKER = process.env.ARENA_TRACKER ?? 'https://arena.scrolab.com';
@@ -653,6 +661,7 @@ const server = http.createServer(async (req, res) => {
         ? resolveCrowdFavorites(state.crowdFavorites.ids, winDataKnown ? state.checklist?.cards : null, state.championIndex)
         : [];
       return send(200, {
+        version: APP_VERSION,
         lcuConnected: state.lcuConnected,
         gameflowPhase: state.gameflowPhase,
         player: playerKey(),
