@@ -39,7 +39,7 @@ export async function buildChecklist(opts: ChecklistOptions) {
   return { version, store, result };
 }
 
-// CLI entry: node src/checklist.ts "Scro#Scro" [NA]
+// CLI entry: node src/checklist.ts "Name#TAG" [NA]
 if (isEntryPoint(import.meta.url)) {
   const riotId = process.argv[2];
   const regionLabel = process.argv[3] ?? 'NA';
