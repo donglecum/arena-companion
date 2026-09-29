@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCrowdFavoriteIds, resolveCrowdFavorites } from '../src/server.ts';
+import { parseCrowdFavoriteIds, resolveCrowdFavorites, LCU_EVENT_TOPICS } from '../src/server.ts';
+import { isStaleSocketError } from '../src/lcu.ts';
 import { isArenaQueue } from '../src/postgame.ts';
 
 test('parseCrowdFavoriteIds accepts the LCU payload shapes', () => {
@@ -57,4 +58,17 @@ test('isArenaQueue accepts queue 1700/1750 and the CHERRY game mode', () => {
   assert.equal(isArenaQueue(420, 'CLASSIC'), false);
   assert.equal(isArenaQueue(null, null), false);
   assert.equal(isArenaQueue(undefined, undefined), false);
+});
+
+test('the LCU event socket subscribes to every JSON API event', () => {
+  // Crowd favorites only arrive through the catch-all topic; a path-specific
+  // subscription never delivered them and the panel stayed hidden.
+  assert.deepEqual(LCU_EVENT_TOPICS, ['OnJsonApiEvent']);
+});
+
+test('only closed keep-alive sockets are retried', () => {
+  assert.equal(isStaleSocketError(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })), true);
+  assert.equal(isStaleSocketError(new Error('socket hang up')), true);
+  assert.equal(isStaleSocketError(new Error('LCU request timed out: /x')), false);
+  assert.equal(isStaleSocketError(Object.assign(new Error('refused'), { code: 'ECONNREFUSED' })), false);
 });

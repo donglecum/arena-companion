@@ -37,8 +37,13 @@ const GAMEFLOW_PHASE_PATH = '/lol-gameflow/v1/gameflow-phase';
 /** The challenges payload is large and only changes after a game; the summoner rarely changes. */
 const CHALLENGES_REFRESH_MS = 5 * 60_000;
 const SUMMONER_REFRESH_MS = 60_000;
-/** LCU event topics: one path each instead of every client event. */
-const lcuTopic = (uri: string) => `OnJsonApiEvent${uri.replace(/\//g, '_')}`;
+/**
+ * LCU event topics. Keep the catch-all: crowd favorites arrive only as an event
+ * (GET on the resource is 404), and path-specific topics such as
+ * OnJsonApiEvent_lol-lobby-team-builder_champ-select_v1_crowd-favorite-champion-list
+ * never delivered them, which left the panel hidden (v0.2.0–v0.2.2).
+ */
+export const LCU_EVENT_TOPICS = ['OnJsonApiEvent'];
 
 const state: {
   lcuConnected: boolean;
@@ -864,7 +869,7 @@ if (isEntryPoint(import.meta.url) && FIXTURE) {
   const crowdFavoritesWs = new LcuSubscriber({
     resolveLockfile: readLockfile,
     reconnectDelayMs: 5000,
-    topics: [lcuTopic(CROWD_FAVORITES_PATH), lcuTopic(GAMEFLOW_PHASE_PATH)],
+    topics: LCU_EVENT_TOPICS,
     onEvent: handleLcuEvent,
     onStatus: (status) => {
       if (status.connected) {
