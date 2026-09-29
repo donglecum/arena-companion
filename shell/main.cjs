@@ -56,6 +56,13 @@ let statusFailures = 0;
 let lastGameflowPhase = null;
 let lastNotifiedEvent = null;
 let lastLoginItem = null;
+// Latest auto-update status; the backend shows it in the sidebar.
+let updateStatus = null;
+
+function reportUpdate(status) {
+  updateStatus = status;
+  void postJson('/api/update-status', status);
+}
 const shellStartedAt = Date.now();
 
 let serverDataEnv = null;
@@ -548,6 +555,8 @@ async function pollStatus() {
   }
   statusFailures = 0;
   notifyPostGame(s.lastEvent);
+  // A restarted backend forgets the update status; hand it over again.
+  if (JSON.stringify(s.update ?? null) !== JSON.stringify(updateStatus)) void postJson('/api/update-status', updateStatus);
   lastGameflowPhase = typeof s.gameflowPhase === 'string' ? s.gameflowPhase : null;
   if (typeof s.config?.launchAtLogin === 'boolean' && s.config.launchAtLogin !== lastLoginItem) {
     lastLoginItem = s.config.launchAtLogin;
@@ -592,7 +601,7 @@ if (!app.requestSingleInstanceLock()) {
 async function start() {
   app.setAppUserModelId('com.arena.companion');
   // Busy while League is in champ select/game, or while the overlay is up.
-  startAutoUpdate(app, { isBusy: () => overlayShown || isBusyPhase(lastGameflowPhase) });
+  startAutoUpdate(app, { isBusy: () => overlayShown || isBusyPhase(lastGameflowPhase), onStatus: reportUpdate });
   if (SMOKE_STATUS) console.log(`smoke mode: reading status from ${SMOKE_STATUS}`);
   else startServer();
   const up = await waitForServer();

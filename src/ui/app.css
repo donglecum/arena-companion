@@ -120,6 +120,20 @@ body.rail-collapsed .app { grid-template-columns: var(--rail-w-collapsed) minmax
 }
 .nav-item.active .ico { color: var(--blue-bright); }
 .rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+.update-note {
+  display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: var(--r);
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.28), rgba(56, 189, 248, 0.08)); border: 1px solid rgba(96, 165, 250, 0.4);
+  box-shadow: 0 0 18px rgba(59, 130, 246, 0.18); min-width: 0; animation: fade-in 0.3s ease;
+}
+.update-icon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex: none; background: var(--blue-tint); color: var(--cyan); }
+.update-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; line-height: 1.25; }
+.update-text b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.update-text small { font-size: 11px; color: var(--text-2); }
+.update-text .bar { display: block; margin-top: 2px; }
+.update-text .bar-fill { display: block; }
+.update-note.ready .update-icon { color: var(--won); background: rgba(45, 212, 191, 0.12); }
+body.rail-collapsed .update-note { justify-content: center; padding: 6px; }
+body.rail-collapsed .update-text { display: none; }
 .fixture-badge {
   align-self: flex-start; margin-left: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--warn); border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 999px; padding: 2px 8px; white-space: nowrap;
@@ -703,7 +717,8 @@ body.mini #cs-mini { height: 30px; padding: 0 10px; font-size: 12px; }
 }
 @media (max-width: 900px) {
   .app, body.rail-collapsed .app { grid-template-columns: var(--rail-w-collapsed) minmax(0, 1fr); }
-  .brand-text, .nav-label, .profile-text, .fixture-badge { display: none; }
+  .brand-text, .nav-label, .profile-text, .fixture-badge, .update-text { display: none; }
+  .update-note { justify-content: center; padding: 6px; }
   .rail-brand { justify-content: center; padding-left: 0; padding-right: 0; }
   .nav-item { justify-content: center; padding: 0; }
   .profile { justify-content: center; padding: 6px 0; background: transparent; border-color: transparent; }

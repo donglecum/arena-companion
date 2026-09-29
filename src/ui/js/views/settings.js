@@ -40,7 +40,7 @@ function layout() {
         <button id="set-fullscan" class="btn ghost">${icon('refresh', 15)} Full rescan</button></div>
     </section>
     <section class="card settings-group"><h2>${icon('info', 16)} About</h2>
-      <div class="setting"><span class="setting-icon">${icon('info', 17)}</span><span class="setting-text"><b>Version</b><small>Updates install automatically on start and are re-checked every few hours.</small></span><code class="value" id="set-version">–</code></div>
+      <div class="setting"><span class="setting-icon">${icon('info', 17)}</span><span class="setting-text"><b>Version</b><small id="set-update">Updates install automatically on start and are re-checked every few hours.</small></span><code class="value" id="set-version">–</code></div>
       <div class="setting"><span class="setting-icon">${icon('folder', 17)}</span><span class="setting-text"><b>Data folder</b><small>Config and match cache. Survives updates.</small></span><code class="value path" id="set-data">–</code></div>
       <div class="setting"><span class="setting-icon">${icon('keyboard', 17)}</span><span class="setting-text"><b>Keyboard shortcuts</b><small>Ctrl+K opens the command palette.</small></span><button class="btn ghost" data-action="shortcuts">Show shortcuts</button></div>
     </section>
@@ -126,5 +126,10 @@ export function renderSettings(st) {
   $('set-login').checked = cfg.launchAtLogin !== false;
   $('set-version').textContent = s.app?.version ? `v${s.app.version}${s.fixture ? ' · sample data' : ''}` : '–';
   $('set-data').textContent = s.app?.dataDir ?? '–';
+  const u = s.update;
+  $('set-update').textContent = u?.state === 'downloading' ? `Downloading v${u.version} (${u.percent ?? 0}%) — it installs automatically.`
+    : u?.state === 'ready' ? `v${u.version} is downloaded and installs once you're out of champ select and games.`
+    : u?.state === 'restarting' ? `Restarting to install v${u.version}…`
+    : 'Up to date as of the last check. Updates install automatically on start and are re-checked every few hours.';
   $('set-data').title = s.app?.dataDir ?? '';
 }

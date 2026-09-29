@@ -63,6 +63,31 @@ function renderChrome() {
   $('profile-dot').className = `status-dot ${s?.lcuConnected ? 'on' : ''}`;
   $('profile-avatar').textContent = (s?.summoner?.gameName ?? '?').slice(0, 1).toUpperCase();
   $('fixture-badge').hidden = !s?.fixture;
+  renderUpdateNote(s?.update);
+}
+
+/** Sidebar note while an update downloads or waits to install (the updater itself is silent). */
+function renderUpdateNote(update) {
+  const el = $('update-note');
+  const text = updateText(update);
+  if (!text) { el.hidden = true; el.dataset.sig = ''; return; }
+  const sig = JSON.stringify(update);
+  el.hidden = false;
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig;
+  el.className = `update-note ${update.state}`;
+  el.title = `${text.title} — ${text.sub}`;
+  el.innerHTML = `<span class="update-icon">${icon(update.state === 'downloading' ? 'download' : update.state === 'ready' ? 'sparkles' : 'refresh', 16, update.state === 'restarting' ? 'spin' : '')}</span>
+    <span class="update-text"><b>${esc(text.title)}</b><small>${esc(text.sub)}</small>
+    ${update.state === 'downloading' ? `<span class="bar"><span class="bar-fill" style="width:${update.percent ?? 0}%"></span></span>` : ''}</span>`;
+}
+
+export function updateText(update) {
+  if (!update?.version) return null;
+  if (update.state === 'downloading') return { title: `Downloading v${update.version}`, sub: `${update.percent ?? 0}% · installs automatically` };
+  if (update.state === 'ready') return { title: `Update v${update.version} ready`, sub: 'Restarts once you’re out of champ select and games' };
+  if (update.state === 'restarting') return { title: `Installing v${update.version}`, sub: 'Restarting now…' };
+  return null;
 }
 
 function renderAll() {
