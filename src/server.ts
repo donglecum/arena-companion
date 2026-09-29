@@ -17,6 +17,10 @@ import { detectArenaGameEnd, computePostGameEvent, isStale, isArenaQueue } from 
 import { LcuSubscriber, type LcuEvent } from './ws.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const APP_VERSION = (() => {
+  try { return String(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version ?? ''); }
+  catch { return ''; }
+})();
 const UI_DIR = path.join(__dirname, 'ui');
 
 const LOCKFILE_PATH = process.env.LCU_LOCKFILE ?? 'C:\\Riot Games\\League of Legends\\lockfile';
@@ -760,6 +764,7 @@ const server = http.createServer(async (req, res) => {
         : [];
       return send(200, {
         fixture: Boolean(FIXTURE),
+        app: { version: APP_VERSION, dataDir: path.dirname(path.resolve(CONFIG_PATH)) },
         lcuConnected: state.lcuConnected,
         gameflowPhase: state.gameflowPhase,
         player: playerKey(),
