@@ -15,30 +15,52 @@ Read-only League LCU companion for Arena win tracking, running on WINDOWSPC as a
 
 ## Screens
 
-- **Dashboard** — Arena God hero (official count in gold with progress bar, honest provable/manual/unrecoverable breakdown), stat cards (games scanned, owned, wins, last sync with stale indicator), a Placements card with win rate (1st), last-place rate (8th), and percentages/game counts for 1st–8th across scanned Arena games, recent Arena games strip with placement badges, LCU connection pill in the header.
-- **Champions** — portrait grid of all champions with status chips (WON / NEEDED / MANUAL), search, filter chips (Needed/All/Won/Manual), sort (A–Z, Mastery, Recently played), unowned champions desaturated with a lock, click any tile for a detail popover with manual mark/unmark (writes through to arena-tracker).
-- **Champ Select** — the main window stays hidden or where you left it; open it from the tray when needed. During Arena champ select (`CHERRY`, queue 1700 or 1750), only a small always-on-top **Crowd Favorites** panel appears automatically, with each lobby favorite's portrait and ✓ won / ✗ still needed (or ? when win data is unavailable). It hides after champ select and while the game runs. On Windows it docks outside the League client's right edge with a 9 DIP gap, falling inside when there is no room; it follows moves/resizes across monitors. Drag vertically to save its offset from the client top; if the client window is unavailable, the panel uses its last free position. The main view retains the current hover/pick card, needed-owned grid, and mini mode.
-- **Post-game** — on leaving an Arena match, runs an incremental rescan and toasts a celebration when you first-win a new champion ("First Arena win on X!"), also shown as a Windows notification since the main window usually stays hidden.
-- **Settings** — Riot ID override (leave empty to follow the account logged into League), region (auto-detected from the client, or pinned), mini-mode default, always-on-top, full rescan, and a **Crowd Favorites panel** button to show a clearly labeled sample preview for positioning. With the client visible, drag the preview up/down to set its relative height, then click **Done**; without the client, dragging sets the fallback position. A real Arena champ select takes over while active; if the preview remains enabled, it resumes afterward. Preview mode is not saved and starts off after an app restart.
+![Dashboard](docs/screenshots/after/dashboard-1180x820.png)
+
+The app is a left navigation rail (collapsible), a top bar with the Ctrl+K search, the League client status and sync state, and a bottom **live bar** that shows what League is doing right now (champ select pick and whether it counts, a game in progress, or your last game) with Arena God progress along its top edge.
+
+- **Dashboard** — Arena God ring with the official count, an honest breakdown (from match history / manual / unrecoverable), and the pace toward Arena God ("about N more games at your recent pace"). Stat tiles for games scanned, win rate, average placement, win streak, new champions this week and owned-but-not-won. Placement distribution (1st gold, 2nd–4th blue, 5th–7th slate, 8th coral), a form chart of your last 30 placements, **Play next** picks (needed champions you own, ranked by mastery and how you place on their class, each with its reason), recent games, and your latest play session.
+- **Champions** — grid or sortable table (name, games, wins, win rate, average placement, last played, mastery). Filters: Needed / All / Won / Manual, class (Fighter, Mage, Assassin, Tank, Marksman, Support — also clickable in the per-class progress bars), owned only, played / never played. Unowned champions are desaturated with a lock. Layout, filters and sort are remembered.
+- **Champion page** — splash hero, classes, status, mastery, Arena record (games, wins, average placement, first-win date), a placement histogram and every Arena game on that champion. Manual mark / unmark (click twice to confirm) writes through to arena-tracker.
+- **Match History** — a year-long activity calendar (games per day, new first wins outlined), filters by champion, placement (1st, top 4, bottom 4, 8th, first wins) and date range, and games grouped by day with daily summaries.
+- **Champ Select** — the main window stays hidden or where you left it; open it from the tray when needed. During Arena champ select (`CHERRY`, queue 1700 or 1750), only a small always-on-top **Crowd Favorites** panel appears automatically, with each lobby favorite's portrait and ✓ won / ✗ still needed (or ? when win data is unavailable). It hides after champ select and while the game runs. On Windows it docks outside the League client's right edge with a 9 DIP gap, falling inside when there is no room; it follows moves/resizes across monitors. Drag vertically to save its offset from the client top; if the client window is unavailable, the panel uses its last free position. The Champ Select view shows the current pick (and whether a win on it counts), the crowd favorites, and needed champions you own; **Mini mode** turns it into a compact card.
+- **Post-game** — on leaving an Arena match, runs an incremental rescan; a first win on a new champion gets a celebration card in the app and a Windows notification (the main window usually stays hidden).
+- **Settings** — Riot ID override (leave empty to follow the account logged into League), region (auto-detected from the client, or pinned), mini-mode default and always-on-top switches, full rescan, version and data folder, and a **Crowd Favorites panel** button to show a clearly labeled sample preview for positioning. With the client visible, drag the preview up/down to set its relative height, then click **Done**; without the client, dragging sets the fallback position. A real Arena champ select takes over while active; if the preview remains enabled, it resumes afterward. Preview mode is not saved and starts off after an app restart.
+
+## Keyboard
+
+| Keys | Action |
+|---|---|
+| `Ctrl+K` / `Ctrl+P` | Command palette: jump to any champion or view, update scan, full rescan, toggle mini mode / always on top / overlay preview, export the checklist as CSV |
+| `1`–`5` | Dashboard, Champions, Match History, Champ Select, Settings |
+| `/` | Search champions |
+| `[` | Collapse or expand the sidebar |
+| `?` | Shortcut sheet |
+| `Esc` | Close dialogs, leave mini mode |
 
 ## Design system
 
-CSS custom properties in `src/ui/app.css`:
-- Surfaces: `--bg #0f1117`, `--surface #1a1d29`, `--surface-2 #222634`, `--border #2c3040`
-- Text: `--text #e8eaf2`, `--text-dim #9aa0b5`
-- Accent: `--accent #6b5ce7` (indigo, primary actions/active states)
-- Gold: `--gold #c8a04b` (won / Arena God — League Hextech gold)
-- Status: `--ok #3fb970`, `--warn #d9963d`, `--danger #d95f5f`
-- Components: `.card`, `.chip` (status badges), `.champ-tile`, `.btn` (primary/ghost), `.progress`, `.toast`, skeleton shimmer
-- Motion: 150–200ms ease transitions, portrait fade-in, nothing autoplaying
+Black and electric blue. Tokens are CSS custom properties at the top of `src/ui/app.css`:
+- Surfaces, darkest first: `--bg #07090d`, `--rail #0b0e14`, `--surface #10141c`, `--surface-2 #161b26`, `--hover #1c2230`, borders `--border #1f2633` and `--border-soft`
+- Blue: `--blue #3b82f6`, `--blue-bright #60a5fa` (active/focus), `--cyan #38bdf8` (highlights, glow), `--blue-deep #1d4ed8`, `--blue-btn #2563eb` (primary buttons, white text at 5:1), `--blue-tint` (selected states)
+- Text: `--text #e6edf7`, `--text-2 #8b97ab`, `--text-3 #7a869a` (all at least 4.5:1 on the surfaces)
+- Status: won `--won #2dd4bf`, needed `--needed #f87171`, manual `--manual #a78bfa`, `--warn #fbbf24`; gold `--gold #e8b949` only for Arena God and 1st place
+- Placement tiers: `--t1` gold, `--t2` blue, `--t3` slate, `--t4` coral
+- Type: Inter for UI, JetBrains Mono (tabular) for numbers — both bundled in `src/ui/fonts/` (SIL OFL, see `LICENSES.txt`); no web font requests
+- Components: `.card`, `.tile` (stat tiles), `.chip` / `.stat-chip`, `.btn` (primary/ghost), `.pill-btn` filters, `.switch`, `.champ-tile`, `.art` (champion art with a colored-initials fallback, so offline or missing art never leaves a hole), skeleton shimmer
+- Icons: inline Lucide-style line icons (`src/ui/js/icons.js`)
+- Charts: hand-rolled SVG/HTML (`src/ui/js/charts.js`) — progress ring, placement bars, form chart, activity calendar
+- Motion: 150–250ms ease-out, count-up on the Arena God number, glow on hover/active only; `prefers-reduced-motion` turns it all off. Views only rebuild when their data changes, so the 3-second poll never reloads images.
 
 ## Architecture
 
 - `shell/main.cjs`, `shell/windows.cjs`, `shell/dock.cjs` — Electron shell, read-only Win32 window/process discovery via prebuilt Koffi FFI, and pure client-relative dock geometry. Native client pixels are converted to Electron DIP per target display. `ARENA_COMPANION_DOCK_TARGET` overrides `LeagueClient.exe` for safe-window smoke testing.
 - `src/server.ts` — backend: LCU polling plus persistent read-only LCU WebSocket subscription to `/lol-lobby-team-builder/champ-select/v1/crowd-favorite-champion-list`; match win checklist, static UI + JSON API on 127.0.0.1:8788. `src/httpGuard.ts` gates requests; `src/config.ts` validates settings.
-- `src/ui/` — the SPA (index.html + app.css + app.js, vanilla JS, hash-routed views)
+- `src/ui/` — the SPA: `index.html`, `app.css`, and plain ES modules in `src/ui/js/` (no build step): `main.js` (routing, shell, shortcuts), `store.js` (polling), `views/*.js` (one per screen), `palette.js`, `livebar.js`, `charts.js`, `icons.js`, `util.js`. `overlay.html` is the Crowd Favorites panel.
 - `assets/` — app logo (gold anvil + green check): `icon.ico` (multi-size, used for the Electron window and tray icons), `icon-256/512/32.png`, `icon.svg` (favicon at `/icon.svg` with `/icon-32.png` fallback, served by `src/server.ts`). The shell sets the AppUserModelId to `com.arena.companion` for Windows taskbar identity.
 - `src/postgame.ts` — gameflow transition + win-diff detection (unit-tested)
+- `src/insights.ts` — streaks, pace toward Arena God, latest session and Play next picks, served by `GET /api/insights`; `GET /api/matches` serves every scanned Arena match (both read-only, polled only when the checklist changes)
+- `src/fixture.ts` — deterministic sample data for `ARENA_COMPANION_FIXTURE` (see Tests)
 - `src/lockfile.ts`, `src/lcu.ts`, `src/ws.ts` — read-only LCU primitives; the WebSocket subscriber reconnects after client restarts
 - `src/trackerApi.ts`, `src/scan.ts`, `src/ddragon.ts`, `src/regions.ts` — checklist data via arena-tracker + Data Dragon; `scan.ts` aggregates stored match placements into the dashboard rates using games scanned as the denominator (no rescan required for existing caches).
 - `src/probe.ts`, `src/checklist.ts` — CLIs
@@ -58,9 +80,12 @@ CSS custom properties in `src/ui/app.css`:
 
 ## Tests
 
+**Sample data (no League client needed):** `ARENA_COMPANION_FIXTURE=1 npm start` serves a realistic player (171 champions, 760 Arena games, generated placeholder art) at `http://localhost:8788`; `ARENA_COMPANION_FIXTURE=champselect` adds a live Arena champ select with crowd favorites. It never touches the LCU, the tracker or Data Dragon, and manual marks stay in memory. Screenshots in `docs/screenshots/` were taken this way.
+
+
 `npm run typecheck` — `tsc` over `src/` and `tests/` (no output; Node runs the `.ts` files directly). CI runs it and `npm test` on every push and pull request.
 
-`npm test` — unit tests for request gating, config validation, region detection, the data-folder migration, update-restart deferral, the champion cache, lockfile parsing/redaction, scan/manual-win and placement aggregation, retrying match batches that failed on an earlier scan (including empty and invalid-placement stores), favorite payload/status resolution, client-relative dock/clamp geometry, both Arena queues, and post-game transitions.
+`npm test` — unit tests for request gating, config validation, region detection, the data-folder migration, update-restart deferral, the champion cache (with classes and titles), lockfile parsing/redaction, scan/manual-win and placement aggregation, retrying match batches that failed on an earlier scan (including empty and invalid-placement stores), favorite payload/status resolution, client-relative dock/clamp geometry, both Arena queues, and post-game transitions.
 
 ## Capability matrix (WINDOWSPC live check 2026-09-27)
 
