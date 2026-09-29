@@ -13,7 +13,7 @@ function hero(s, ins) {
   const cl = s.checklist;
   const total = cl?.total ?? 0;
   const official = s.arenaGod;
-  const count = official ?? cl?.wonCount ?? 0;
+  const count = Math.max(official ?? 0, cl?.wonCount ?? 0);
   const manual = (s.cards ?? []).filter((c) => c.manual && !c.wins).length;
   const fromHistory = (cl?.wonCount ?? 0) - manual;
   const gap = official != null && cl ? official - cl.wonCount : 0;

@@ -23,7 +23,7 @@ let inFlight = null;
 
 async function loadDerived(force) {
   const s = state.status;
-  const key = [s?.player, s?.lastSync, s?.checklist?.wonCount, (s?.cards ?? []).filter((c) => c.manual).length].join('|');
+  const key = [s?.player, s?.lastSync, s?.checklist?.wonCount, s?.arenaGod, (s?.cards ?? []).filter((c) => c.manual).length].join('|');
   // Insights depend on the clock too (sessions expire, "this week" moves).
   if (!force && key === dataKey && Date.now() - insightsAt < 5 * 60_000) return;
   const matchesChanged = key !== dataKey || !state.matches;

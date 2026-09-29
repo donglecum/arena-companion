@@ -12,6 +12,7 @@ const { DEFAULT_OFFSET, clampOffset, dockBounds } = require('./dock.cjs');
 const { startAutoUpdate, isBusyPhase } = require('./updater.cjs');
 const { dataEnv } = require('./paths.cjs');
 const { syncLoginItem, launchedHidden } = require('./startup.cjs');
+const { restoreBounds } = require('./windowState.cjs');
 const windows = process.platform === 'win32' ? require('./windows.cjs') : null;
 
 const APP_DIR = path.join(__dirname, '..');
@@ -144,13 +145,45 @@ function getStatus() {
   }
 }
 
+// Main window size and position survive restarts (the window opens from the tray).
+function mainWindowStatePath() {
+  return path.join(app.getPath('userData'), 'main-window.json');
+}
+
+let mainWindowSaveTimer = null;
+let maximizeOnShow = false;
+
+function saveMainWindowState() {
+  clearTimeout(mainWindowSaveTimer);
+  mainWindowSaveTimer = null;
+  if (!win || win.isDestroyed() || win.isMinimized()) return;
+  const maximized = win.isMaximized();
+  const b = maximized ? win.getNormalBounds() : win.getBounds();
+  try {
+    const file = mainWindowStatePath();
+    fs.writeFileSync(`${file}.tmp`, JSON.stringify({ x: b.x, y: b.y, width: b.width, height: b.height, maximized }));
+    fs.renameSync(`${file}.tmp`, file);
+  } catch (err) {
+    console.error(`main window position save failed: ${err.message}`);
+  }
+}
+
+function scheduleMainWindowSave() {
+  clearTimeout(mainWindowSaveTimer);
+  mainWindowSaveTimer = setTimeout(saveMainWindowState, 500);
+}
+
 function createWindow() {
+  const bounds = restoreBounds(readJsonFile(mainWindowStatePath(), true), screen.getAllDisplays().map((d) => d.workArea));
+  // maximize() would show the hidden window, so it waits for the first show.
+  maximizeOnShow = bounds.maximized;
   win = new BrowserWindow({
-    width: 1180,
-    height: 820,
+    ...(Number.isFinite(bounds.x) ? { x: bounds.x, y: bounds.y } : {}),
+    width: bounds.width,
+    height: bounds.height,
     minWidth: 480,
     minHeight: 300,
-    backgroundColor: '#0f1117',
+    backgroundColor: '#07090d',
     autoHideMenuBar: true,
     show: false,
     title: 'Arena Companion',
@@ -171,7 +204,9 @@ function createWindow() {
     e.preventDefault();
     if (/^https:\/\//i.test(url)) shell.openExternal(url);
   });
+  for (const event of ['resize', 'move', 'maximize', 'unmaximize']) win.on(event, scheduleMainWindowSave);
   win.on('close', (e) => {
+    saveMainWindowState();
     if (!quitting) {
       e.preventDefault();
       win.hide(); // minimize to tray instead of closing
@@ -188,6 +223,10 @@ function showMainWindow() {
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
   win.show();
+  if (maximizeOnShow) {
+    maximizeOnShow = false;
+    win.maximize();
+  }
   win.focus();
 }
 
@@ -570,6 +609,7 @@ app.on('before-quit', () => {
   clearInterval(overlayDockTimer);
   clearTimeout(overlayLoadTimer);
   clearTimeout(overlaySaveTimer);
+  if (mainWindowSaveTimer) saveMainWindowState();
   if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy();
   if (server && !server.killed) server.kill();
 });
