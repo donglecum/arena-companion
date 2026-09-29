@@ -2,7 +2,7 @@
 // Spawns the existing Node backend and presents it in a native window with
 // tray plus a separate always-on-top Crowd Favorites overlay for champ select
 // or Settings preview. The main window opens only when requested from the tray.
-const { app, BrowserWindow, Tray, Menu, nativeImage, screen, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, screen, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,6 +31,7 @@ const SMOKE_STATUS = process.env.ARENA_COMPANION_SMOKE_STATUS ?? null;
 
 let win = null;
 let tray = null;
+let trayOnTopItem = null;
 let server = null;
 let quitting = false;
 
@@ -51,6 +52,8 @@ let overlaySettingBounds = false;
 let smokeErrorLogged = '';
 let statusFailures = 0;
 let lastGameflowPhase = null;
+let lastNotifiedEvent = null;
+const shellStartedAt = Date.now();
 
 let serverDataEnv = null;
 
@@ -67,6 +70,23 @@ function startServer() {
   server.on('exit', (code) => {
     console.log(`backend exited (${code}); restarting in 5s`);
     if (!quitting) setTimeout(startServer, 5000);
+  });
+}
+
+function postJson(pathname, body) {
+  return new Promise((resolve) => {
+    const data = JSON.stringify(body);
+    const req = http.request(
+      `${BASE}${pathname}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } },
+      (res) => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode === 200));
+      },
+    );
+    req.on('error', () => resolve(false));
+    req.setTimeout(2500, () => req.destroy());
+    req.end(data);
   });
 }
 
@@ -136,6 +156,19 @@ function createWindow() {
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   win.loadURL(BASE);
+  // The backend may still be starting (or restarting); keep retrying instead of
+  // leaving the window on an error page.
+  win.webContents.on('did-fail-load', (_e, code, desc, _url, isMainFrame) => {
+    if (!isMainFrame || quitting) return;
+    console.error(`main window load failed (${code} ${desc}); retrying in 3s`);
+    setTimeout(() => { if (win && !win.isDestroyed() && !quitting) win.loadURL(BASE).catch(() => {}); }, 3000);
+  });
+  win.webContents.on('will-navigate', (e, url) => {
+    // The UI is a single page on the backend; anything else opens in the browser.
+    if (url.startsWith(BASE)) return;
+    e.preventDefault();
+    if (/^https:\/\//i.test(url)) shell.openExternal(url);
+  });
   win.on('close', (e) => {
     if (!quitting) {
       e.preventDefault();
@@ -149,6 +182,13 @@ function createWindow() {
   });
 }
 
+function showMainWindow() {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
 function createTray() {
   // App icon from assets; fall back to the generated dot if the file is missing.
   let image = nativeImage.createFromPath(ICON_PATH);
@@ -160,15 +200,28 @@ function createTray() {
   }
   tray = new Tray(image);
   tray.setToolTip('Arena Companion');
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: 'Show', click: () => { win.show(); win.focus(); } },
-      { label: 'Always on top', type: 'checkbox', checked: false, click: (item) => win.setAlwaysOnTop(item.checked) },
-      { type: 'separator' },
-      { label: 'Quit', click: () => { quitting = true; app.quit(); } },
-    ]),
-  );
-  tray.on('click', () => { win.show(); win.focus(); });
+  const menu = Menu.buildFromTemplate([
+    { label: 'Show', click: showMainWindow },
+    {
+      id: 'always-on-top',
+      label: 'Always on top',
+      type: 'checkbox',
+      checked: false,
+      // Saved through the backend config, which pollStatus applies; setting the
+      // window directly was undone by the next status poll.
+      click: async (item) => {
+        win.setAlwaysOnTop(item.checked);
+        if (!(await postJson('/api/config', { alwaysOnTop: item.checked }))) {
+          console.error('always-on-top could not be saved');
+        }
+      },
+    },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { quitting = true; app.quit(); } },
+  ]);
+  trayOnTopItem = menu.getMenuItemById('always-on-top');
+  tray.setContextMenu(menu);
+  tray.on('click', showMainWindow);
 }
 
 // --- Crowd Favorites overlay -------------------------------------------------
@@ -207,7 +260,9 @@ function saveOverlayPosition() {
     const state = { ...overlayFreePos, offset: overlayOffset };
     if (overlaySavedPos && Object.keys(state).every((key) => state[key] === overlaySavedPos[key])) return;
     try {
-      fs.writeFileSync(overlayStatePath(), JSON.stringify(state));
+      const file = overlayStatePath();
+      fs.writeFileSync(`${file}.tmp`, JSON.stringify(state));
+      fs.renameSync(`${file}.tmp`, file);
       overlaySavedPos = state;
     } catch (err) {
       console.error(`overlay position save failed: ${err.message}`);
@@ -359,7 +414,7 @@ function setOverlayShown(shown, reason) {
     // Check before showInactive: a screen-saver-level panel must never flash over a match.
     if (windows) {
       try {
-        const { gameRunning, rect } = windows.inspect(DOCK_TARGET, DOCK_ALIASES);
+        const { gameRunning, rect } = windows.inspect(DOCK_TARGET, DOCK_ALIASES, { fresh: true });
         if (gameRunning) return;
         updateDock(rect);
       } catch (err) {
@@ -421,6 +476,19 @@ async function fitOverlayHeight() {
   }
 }
 
+// The main window usually stays hidden, so a first win also gets a Windows
+// notification (the in-window toast alone was easy to miss).
+function notifyPostGame(event) {
+  if (!event || event.type !== 'new-win' || typeof event.at !== 'string' || event.at === lastNotifiedEvent) return;
+  lastNotifiedEvent = event.at;
+  if (Date.parse(event.at) < shellStartedAt || !Notification.isSupported()) return;
+  const champion = typeof event.champion === 'string' && event.champion ? event.champion : 'a new champion';
+  const count = Number.isFinite(event.wonCount) ? ` · ${event.wonCount} champions won` : '';
+  const notification = new Notification({ title: 'First Arena win!', body: `${champion}${count}`, icon: ICON_PATH });
+  notification.on('click', showMainWindow);
+  notification.show();
+}
+
 // Reason string for the overlay-hide log line (helps diagnose champ select exits).
 function overlayHideReason(s, favorites) {
   if (s.crowdFavoritesActive !== true) return 'not in arena champ select';
@@ -438,9 +506,11 @@ async function pollStatus() {
     return;
   }
   statusFailures = 0;
+  notifyPostGame(s.lastEvent);
   lastGameflowPhase = typeof s.gameflowPhase === 'string' ? s.gameflowPhase : null;
-  if (s.config?.alwaysOnTop != null && win.isAlwaysOnTop() !== !!s.config.alwaysOnTop) {
-    win.setAlwaysOnTop(!!s.config.alwaysOnTop);
+  if (s.config?.alwaysOnTop != null) {
+    if (win.isAlwaysOnTop() !== !!s.config.alwaysOnTop) win.setAlwaysOnTop(!!s.config.alwaysOnTop);
+    if (trayOnTopItem) trayOnTopItem.checked = !!s.config.alwaysOnTop;
   }
 
   // Crowd favorites overlay — the real list during an Arena champ select
@@ -459,7 +529,16 @@ async function pollStatus() {
   }
 }
 
-app.whenReady().then(async () => {
+// A second copy (logon task + shortcut, or the installer's launch) could not bind
+// the backend port and would restart its backend forever; focus the first instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', showMainWindow);
+  app.whenReady().then(start);
+}
+
+async function start() {
   app.setAppUserModelId('com.arena.companion');
   // Busy while League is in champ select/game, or while the overlay is up.
   startAutoUpdate(app, { isBusy: () => overlayShown || isBusyPhase(lastGameflowPhase) });
@@ -471,7 +550,7 @@ app.whenReady().then(async () => {
   createTray();
   createOverlay();
   setInterval(pollStatus, POLL_MS);
-});
+}
 
 app.on('before-quit', () => {
   quitting = true;

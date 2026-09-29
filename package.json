@@ -1,6 +1,6 @@
 {
   "name": "arena-companion",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "shell/main.cjs",
@@ -76,7 +76,8 @@
       {
         "provider": "github",
         "owner": "donglecum",
-        "repo": "arena-companion"
+        "repo": "arena-companion",
+        "releaseType": "release"
       }
     ]
   }

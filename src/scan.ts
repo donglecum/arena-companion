@@ -21,7 +21,14 @@ export function loadStore(cacheDir: string, platform: string, gameName: string, 
 
 export function saveStore(cacheDir: string, platform: string, gameName: string, tagLine: string, store: unknown) {
   fs.mkdirSync(cacheDir, { recursive: true });
-  fs.writeFileSync(storePath(cacheDir, platform, gameName, tagLine), JSON.stringify(store));
+  writeFileAtomic(storePath(cacheDir, platform, gameName, tagLine), JSON.stringify(store));
+}
+
+/** Write via a temp file and rename, so a crash mid-write never leaves a truncated file behind. */
+export function writeFileAtomic(file: string, data: string) {
+  const temporary = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, data);
+  fs.renameSync(temporary, file);
 }
 
 async function fetchMatches(api: TrackerApi, cluster: string, identity: any, ids: string[], onEach?: (n: number) => void) {
@@ -29,6 +36,7 @@ async function fetchMatches(api: TrackerApi, cluster: string, identity: any, ids
   const POOL = 2;
   const arena: Record<string, any> = {};
   const seen: string[] = [];
+  const failed: string[] = [];
   const batches: string[][] = [];
   for (let start = 0; start < ids.length; start += BATCH_SIZE) batches.push(ids.slice(start, start + BATCH_SIZE));
   let i = 0;
@@ -40,13 +48,15 @@ async function fetchMatches(api: TrackerApi, cluster: string, identity: any, ids
         Object.assign(arena, result.records || {});
         seen.push(...(result.seen || []));
       } catch {
-        // Leave the whole batch unseen so a later update retries it.
+        // Recorded as pending: an incremental update stops at the first known id, so a
+        // failed batch behind a successful newer one would otherwise never be retried.
+        failed.push(...batch);
       }
       onEach?.(batch.length);
     }
   }
   await Promise.all(Array.from({ length: Math.min(POOL, batches.length) }, worker));
-  return { arena, seen };
+  return { arena, seen, failed };
 }
 
 export async function collectMatchIds(
@@ -93,7 +103,7 @@ export async function fullScan(
   };
 
   let done = 0;
-  const { arena, seen } = await fetchMatches(api, region.cluster, identity, ids, (count) => {
+  const { arena, seen, failed } = await fetchMatches(api, region.cluster, identity, ids, (count) => {
     done += count;
     onProgress?.({ phase: 'matches', done, total: ids.length });
   });
@@ -102,6 +112,7 @@ export async function fullScan(
     account: { ...identity, platform: region.platform, region: region.label },
     matches: arena,
     seen: seen.reduce((m: Record<string, number>, id: string) => ((m[id] = 1), m), {}),
+    pending: failed,
     scanDepth: Number.isFinite(depth) ? depth : null,
     historyExhausted: exhausted,
     lastUpdated: Date.now(),
@@ -135,10 +146,15 @@ export async function collectFreshMatchIds(
 export async function update(api: TrackerApi, region: any, store: any, onProgress?: (p: any) => void) {
   const { puuid } = store.account;
   const seen = store.seen || {};
-  const fresh = await collectFreshMatchIds(region.cluster, puuid, seen, store.matches, api.getMatchIds);
+  const newest = await collectFreshMatchIds(region.cluster, puuid, seen, store.matches, api.getMatchIds);
+  // Retry batches that failed on an earlier scan alongside the new matches.
+  const retry = (Array.isArray(store.pending) ? store.pending : []).filter(
+    (id: unknown) => typeof id === 'string' && !(id in seen) && !(id in store.matches),
+  );
+  const fresh = [...new Set([...newest, ...retry])];
 
   let done = 0;
-  const { arena, seen: newlySeen } = await fetchMatches(api, region.cluster, store.account, fresh, (count) => {
+  const { arena, seen: newlySeen, failed } = await fetchMatches(api, region.cluster, store.account, fresh, (count) => {
     done += count;
     onProgress?.({ phase: 'matches', done, total: fresh.length });
   });
@@ -147,24 +163,33 @@ export async function update(api: TrackerApi, region: any, store: any, onProgres
     ...store,
     matches: { ...store.matches, ...arena },
     seen: { ...seen, ...newlySeen.reduce((m: Record<string, number>, id: string) => ((m[id] = 1), m), {}) },
+    pending: failed,
     lastUpdated: Date.now(),
   };
 }
 
 export function aggregate(store: any, champions: any[], masteries: Record<string, any>, manualWins: Set<string>) {
-  const played: Record<string, { games: number; wins: number; last: number }> = {};
+  const played: Record<string, { games: number; wins: number; last: number; placed: number; placementSum: number; top4: number; firstWinAt: number }> = {};
   const placementCounts = new Array(8).fill(0);
   for (const rec of Object.values<any>(store.matches)) {
     const k = (rec.championName || '').toLowerCase();
-    const slot = (played[k] ||= { games: 0, wins: 0, last: 0 });
+    const slot = (played[k] ||= { games: 0, wins: 0, last: 0, placed: 0, placementSum: 0, top4: 0, firstWinAt: 0 });
     slot.games += 1;
-    if (rec.win) slot.wins += 1;
+    if (rec.win) {
+      slot.wins += 1;
+      if (rec.gameEnd && (!slot.firstWinAt || rec.gameEnd < slot.firstWinAt)) slot.firstWinAt = rec.gameEnd;
+    }
     if (rec.gameEnd && rec.gameEnd > slot.last) slot.last = rec.gameEnd;
-    if (Number.isInteger(rec.placement) && rec.placement >= 1 && rec.placement <= 8) placementCounts[rec.placement - 1] += 1;
+    if (Number.isInteger(rec.placement) && rec.placement >= 1 && rec.placement <= 8) {
+      placementCounts[rec.placement - 1] += 1;
+      slot.placed += 1;
+      slot.placementSum += rec.placement;
+      if (rec.placement <= 4) slot.top4 += 1;
+    }
   }
 
   const cards = champions.map((c) => {
-    const p = played[c.id.toLowerCase()] || { games: 0, wins: 0, last: 0 };
+    const p = played[c.id.toLowerCase()] || { games: 0, wins: 0, last: 0, placed: 0, placementSum: 0, top4: 0, firstWinAt: 0 };
     const manual = manualWins.has(c.id);
     const mastery = masteries[c.key];
     return {
@@ -172,6 +197,9 @@ export function aggregate(store: any, champions: any[], masteries: Record<string
       games: p.games,
       wins: p.wins,
       last: p.last,
+      avgPlacement: p.placed ? Math.round((p.placementSum / p.placed) * 10) / 10 : null,
+      top4: p.top4,
+      firstWinAt: p.firstWinAt,
       manual,
       won: p.wins > 0 || manual,
       masteryLevel: mastery?.level ?? 0,
@@ -206,4 +234,42 @@ export function aggregate(store: any, champions: any[], masteries: Record<string
     gamesScanned,
     placements,
   };
+}
+
+export interface MatchRow {
+  id: string;
+  /** ddragon champion id ("MonkeyKing"), or the raw match-v5 name when unknown. */
+  championId: string;
+  championName: string;
+  placement: number | null;
+  win: boolean;
+  gameEnd: number;
+  /** True for the game that first won this champion. */
+  firstWin: boolean;
+}
+
+/** Every stored Arena match, newest first, matched to ddragon champions. */
+export function matchList(store: any, champions: ReadonlyArray<{ id: string; name: string }>): MatchRow[] {
+  const byId = new Map(champions.map((c) => [c.id.toLowerCase(), c]));
+  const rows: MatchRow[] = Object.entries<any>(store?.matches ?? {}).map(([id, rec]) => {
+    const champion = byId.get(String(rec?.championName ?? '').toLowerCase());
+    return {
+      id,
+      championId: champion?.id ?? String(rec?.championName ?? ''),
+      championName: champion?.name ?? String(rec?.championName ?? ''),
+      placement: Number.isInteger(rec?.placement) && rec.placement >= 1 && rec.placement <= 8 ? rec.placement : null,
+      win: Boolean(rec?.win),
+      gameEnd: Number(rec?.gameEnd) || 0,
+      firstWin: false,
+    };
+  });
+  rows.sort((a, b) => a.gameEnd - b.gameEnd || a.id.localeCompare(b.id));
+  const won = new Set<string>();
+  for (const row of rows) {
+    if (row.win && !won.has(row.championId)) {
+      won.add(row.championId);
+      row.firstWin = true;
+    }
+  }
+  return rows.reverse();
 }

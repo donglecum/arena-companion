@@ -31,6 +31,11 @@ export interface LcuSubscriberOptions {
   reconnectDelayMs?: number;
   /** false → give up after the first failure instead of reconnecting (default true). */
   retry?: boolean;
+  /**
+   * WAMP topics to subscribe to (default: every JSON API event). Path-specific topics are
+   * `OnJsonApiEvent` + the URI with '/' replaced by '_'.
+   */
+  topics?: string[];
   /** Called when the subscriber stops itself after giving up (only with retry: false). */
   onStop?: (error?: string) => void;
 }
@@ -41,7 +46,7 @@ interface DecodedFrame {
   remaining?: Buffer;
 }
 
-const WAMP_SUBSCRIBE = JSON.stringify([5, 'OnJsonApiEvent']);
+const DEFAULT_TOPICS = ['OnJsonApiEvent'];
 
 function encodeFrame(text: string, opcode = 0x1): Buffer {
   const payload = Buffer.from(text, 'utf8');
@@ -237,7 +242,9 @@ export class LcuSubscriber {
         buffer = buffer.subarray(headerEnd + 4);
         this.connectedFlag = true;
         this.report({ connected: true, generation, port });
-        sock.write(encodeFrame(WAMP_SUBSCRIBE, 0x1));
+        for (const topic of this.opts.topics ?? DEFAULT_TOPICS) {
+          sock.write(encodeFrame(JSON.stringify([5, topic]), 0x1));
+        }
       }
 
       const frames = decodeFrames(buffer);

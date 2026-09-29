@@ -19,7 +19,12 @@ export class LcuClient {
   constructor(lockfile: Lockfile) {
     this.auth = 'Basic ' + Buffer.from(`riot:${lockfile.password}`).toString('base64');
     this.base = `${lockfile.protocol}://127.0.0.1:${lockfile.port}`;
-    this.agent = new https.Agent({ rejectUnauthorized: false });
+    this.agent = new https.Agent({ rejectUnauthorized: false, keepAlive: true, maxSockets: 4 });
+  }
+
+  /** Drop pooled connections (the lockfile rotated or the client went away). */
+  close(): void {
+    this.agent.destroy();
   }
 
   get(path: string, timeoutMs = 5000): Promise<LcuResponse> {
