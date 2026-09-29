@@ -751,7 +751,9 @@ const server = http.createServer(async (req, res) => {
       if (!state.checklist) return send(200, null);
       return send(200, computeInsights(state.matches, cardsWithOwnership(), {
         total: state.checklist.total,
-        wonCount: state.checklist.wonCount,
+        // Same count as the dashboard headline: Riot's official number when the
+        // client reports it (it includes wins older than match history).
+        wonCount: Math.max(state.arenaGod ?? 0, state.checklist.wonCount),
         now: Date.now(),
       }));
     }

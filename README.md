@@ -72,9 +72,9 @@ Black and electric blue. Tokens are CSS custom properties at the top of `src/ui/
 ## Running on WINDOWSPC
 
 - Install dir: `C:\Users\micha\Apps\arena-companion`
-- Installed copies start with Windows through a login item (`--hidden`, tray only) unless **Start with Windows** is off; dev and portable runs never register one.
-- Scheduled task **ArenaCompanion** runs the Electron app interactively at logon; `schtasks /run /tn ArenaCompanion` starts it immediately while signed in.
-- Only one copy runs: starting it again (shortcut, scheduled task, installer) brings the open window forward. Updates are re-checked every 4 hours.
+- Start at sign-in: installed copies register a Windows login item (`--hidden`, tray only) unless **Start with Windows** is off; check it under Task Manager › Startup apps. Dev and portable runs never register one. The old **ArenaCompanion** scheduled task is no longer needed — delete it (`schtasks /delete /tn ArenaCompanion /f`) so only one copy starts at sign-in.
+- Only one copy runs: starting it again (shortcut, installer) brings the open window forward. Updates are checked at start and every 4 hours.
+- The main window reopens at the size and position it was left (saved in `main-window.json` in the app data folder); a window left on a disconnected monitor comes back on screen.
 - Data: the Electron shell keeps `companion-config.json` and the match `cache/` in the per-user app data folder (`%APPDATA%\<app name>`), which survives updates; older copies in the app folder are copied there once. Running the backend alone (`npm start`) still uses the working directory, or `ARENA_COMPANION_CONFIG` / `ARENA_CACHE`.
 - Runtime logs: `logs\arena-companion.log` / `.err.log`. Favorite IDs and resolved statuses, WebSocket connection, overlay shown/hidden, and safe errors are recorded there; no lockfile password or auth header.
 - Node 24 runs TypeScript directly. Install with `npm install` in the app directory; Koffi includes prebuilt Windows binaries and needs no compiler. If Electron's binary is missing, run `node node_modules\electron\install.js`. The Electron overlay needs a logged-in desktop session.
@@ -86,7 +86,7 @@ Black and electric blue. Tokens are CSS custom properties at the top of `src/ui/
 
 `npm run typecheck` — `tsc` over `src/` and `tests/` (no output; Node runs the `.ts` files directly). CI runs it and `npm test` on every push and pull request.
 
-`npm test` — unit tests for request gating, config validation, the Start-with-Windows login item, region detection, the data-folder migration, update-restart deferral, the champion cache (with classes and titles), lockfile parsing/redaction, scan/manual-win and placement aggregation, retrying match batches that failed on an earlier scan (including empty and invalid-placement stores), favorite payload/status resolution, client-relative dock/clamp geometry, both Arena queues, and post-game transitions.
+`npm test` — unit tests for request gating, config validation, the Start-with-Windows login item, main-window placement, region detection, the data-folder migration, update-restart deferral, the champion cache (with classes and titles), lockfile parsing/redaction, scan/manual-win and placement aggregation, retrying match batches that failed on an earlier scan (including empty and invalid-placement stores), favorite payload/status resolution, client-relative dock/clamp geometry, both Arena queues, and post-game transitions.
 
 ## Capability matrix (WINDOWSPC live check 2026-09-27)
 
