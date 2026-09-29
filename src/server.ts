@@ -6,7 +6,9 @@ import { parseLockfile, type Lockfile } from './lockfile.ts';
 import { LcuClient } from './lcu.ts';
 import { makeTrackerApi } from './trackerApi.ts';
 import { fetchChampionsCached } from './ddragon.ts';
-import { aggregate, loadStore, saveStore, update, fullScan, writeFileAtomic } from './scan.ts';
+import { aggregate, loadStore, saveStore, update, fullScan, writeFileAtomic, matchList, type MatchRow } from './scan.ts';
+import { computeInsights } from './insights.ts';
+import { buildFixture, fixtureArt } from './fixture.ts';
 import { REGIONS, regionByLabel, regionFromClient } from './regions.ts';
 import { applyConfigPatch, loadConfig, normalizeConfigPatch, type CompanionConfig } from './config.ts';
 import { isJsonContentType, rejectRequest } from './httpGuard.ts';
@@ -22,6 +24,8 @@ const TRACKER = process.env.ARENA_TRACKER ?? 'https://arena.scrolab.com';
 const PORT = Number(process.env.ARENA_COMPANION_PORT ?? 8788);
 const CACHE_DIR = process.env.ARENA_CACHE ?? 'cache';
 const CONFIG_PATH = process.env.ARENA_COMPANION_CONFIG ?? 'companion-config.json';
+/** Sample-data mode for UI work and screenshots: '1' (idle) or 'champselect'. No LCU or tracker access. */
+const FIXTURE = process.env.ARENA_COMPANION_FIXTURE ?? '';
 const OWNED_REFRESH_MS = 24 * 3600_000;
 const CROWD_FAVORITES_PATH = '/lol-lobby-team-builder/champ-select/v1/crowd-favorite-champion-list';
 const CROWD_FAVORITES_REFRESH_MS = 15_000;
@@ -49,6 +53,8 @@ const state: {
   ddragonVersion: string | null;
   lastSync: string | null;
   checklist: { wonCount: number; total: number; gamesScanned: number; placements: { placement: number; count: number; percent: number }[]; cards: any[]; recent: any[] } | null;
+  /** Every scanned Arena match, newest first (served by /api/matches, not /api/status). */
+  matches: MatchRow[];
   scanning: boolean;
   lastScanFailedAt: number | null;
   lastEvent: unknown | null;
@@ -77,6 +83,7 @@ const state: {
   ddragonVersion: null,
   lastSync: null,
   checklist: null,
+  matches: [],
   scanning: false,
   lastScanFailedAt: null,
   lastEvent: null,
@@ -507,17 +514,12 @@ async function pollLcu() {
         const myCell = session.localPlayerCellId;
         const me = (session.myTeam ?? []).find((p: any) => p.cellId === myCell);
         const championId = me?.championId || me?.championPickIntent || 0;
-        const owned = new Set(state.ownedChampIds);
-        const neededOwned = (state.checklist?.cards ?? [])
-          .filter((c) => !c.won && owned.has(Number(c.key)))
-          .sort((a, b) => b.masteryPoints - a.masteryPoints)
-          .map((c) => ({ name: c.name, masteryPoints: c.masteryPoints, masteryLevel: c.masteryLevel, image: c.image }));
         state.champSelect = {
           available: true,
           championId,
           championName: state.checklist?.cards.find((c) => Number(c.key) === championId)?.name ?? null,
           isArena,
-          neededOwned,
+          neededOwned: neededOwnedCards(),
         };
       } else {
         state.champSelect = { available: false, status: cs.status };
@@ -536,6 +538,15 @@ async function pollLcu() {
     state.champSelect = { available: false };
   }
   state.prevPhase = state.gameflowPhase;
+}
+
+/** Needed champions you own, by mastery: the champ select suggestions. */
+function neededOwnedCards() {
+  const owned = new Set(state.ownedChampIds);
+  return (state.checklist?.cards ?? [])
+    .filter((c) => !c.won && owned.has(Number(c.key)))
+    .sort((a, b) => b.masteryPoints - a.masteryPoints)
+    .map((c) => ({ name: c.name, masteryPoints: c.masteryPoints, masteryLevel: c.masteryLevel, image: c.image }));
 }
 
 async function postGameRescan() {
@@ -601,6 +612,7 @@ function rescanIfPlayerChanged(before: string | null, reason: string) {
 }
 
 async function runScan(full: boolean): Promise<ScanResult> {
+  if (FIXTURE) return { ok: true }; // sample data never rescans
   const who = currentIdentity();
   if (!who) return { ok: false, error: 'no player identity (LCU offline and no manual Riot ID set)' };
   const { gameName, tagLine } = who;
@@ -620,6 +632,7 @@ async function runScan(full: boolean): Promise<ScanResult> {
     // The player or region may have changed while this scan ran; a queued scan covers the new one.
     if (playerKeyFor(region.platform, gameName, tagLine) !== playerKey()) return { ok: false, error: 'player changed during scan' };
     state.checklist = result;
+    state.matches = matchList(store, champions);
     state.lastScanFailedAt = null;
     if (store.pending?.length) console.log(`[scan] ${store.pending.length} match(es) could not be fetched; retrying on the next scan`);
     if (state.crowdFavorites.ids.length) setCrowdFavorites(state.crowdFavorites.ids, 'checklist refreshed', true);
@@ -650,7 +663,41 @@ const MIME: Record<string, string> = {
   '.js': 'text/javascript',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
+  '.txt': 'text/plain',
 };
+
+/** Cards with ownership resolved (everything counts as owned until the client reports otherwise). */
+function cardsWithOwnership() {
+  const owned = new Set(state.ownedChampIds);
+  return (state.checklist?.cards ?? []).map((c) => ({ ...c, owned: owned.size === 0 || owned.has(Number(c.key)) }));
+}
+
+function loadFixture() {
+  const fx = buildFixture(Date.now());
+  const masteries = Object.fromEntries(Object.entries(fx.masteries));
+  state.checklist = aggregate(fx.store, fx.champions, masteries, fx.manual);
+  state.matches = matchList(fx.store, fx.champions);
+  indexChampions(fx.champions);
+  state.ddragonVersion = 'fixture';
+  state.ownedChampIds = fx.owned;
+  state.ownedFetchedAt = Date.now();
+  state.arenaGod = fx.arenaGod;
+  state.summoner = fx.summoner;
+  state.detectedRegion = 'NA';
+  state.lcuConnected = true;
+  state.lastSync = new Date(Date.now() - 12 * 60_000).toISOString();
+  state.gameflowPhase = FIXTURE === 'champselect' ? 'ChampSelect' : 'None';
+  if (FIXTURE === 'champselect') {
+    const cards = state.checklist.cards;
+    const needed = neededOwnedCards();
+    const current = cards.find((c) => c.name === needed[2]?.name) ?? cards[0];
+    state.champSelect = { available: true, championId: Number(current.key), championName: current.name, isArena: true, neededOwned: needed };
+    const favorites = [needed[0], needed[5], ...cards.filter((c) => c.won).slice(3, 6)].filter(Boolean);
+    state.crowdFavorites.ids = favorites.map((c) => Number(cards.find((card) => card.name === c.name)?.key)).filter(Boolean);
+  }
+  console.log(`[fixture] sample data loaded (${state.matches.length} matches, mode ${FIXTURE})`);
+}
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
@@ -679,6 +726,11 @@ const server = http.createServer(async (req, res) => {
     return send(403, { error: rejected });
   }
   try {
+    if (FIXTURE && url.pathname.startsWith('/fixture-art/') && url.pathname.endsWith('.svg')) {
+      const id = decodeURIComponent(url.pathname.slice('/fixture-art/'.length, -'.svg'.length));
+      if (!/^[A-Za-z0-9]{1,40}$/.test(id)) return send(404, { error: 'not found' });
+      return send(200, fixtureArt(id), 'image/svg+xml');
+    }
     // Static UI
     if (url.pathname === '/' || MIME[path.extname(url.pathname)]) {
       const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
@@ -688,15 +740,26 @@ const server = http.createServer(async (req, res) => {
       if (!file.startsWith(dir + path.sep) || !fs.existsSync(file)) return send(404, { error: 'not found' });
       return send(200, fs.readFileSync(file), MIME[path.extname(file)] ?? 'application/octet-stream');
     }
+    if (url.pathname === '/api/matches' && req.method === 'GET') {
+      return send(200, { matches: state.matches });
+    }
+    if (url.pathname === '/api/insights' && req.method === 'GET') {
+      if (!state.checklist) return send(200, null);
+      return send(200, computeInsights(state.matches, cardsWithOwnership(), {
+        total: state.checklist.total,
+        wonCount: state.checklist.wonCount,
+        now: Date.now(),
+      }));
+    }
     if (url.pathname === '/api/status') {
-      const owned = new Set(state.ownedChampIds);
-      const cards = (state.checklist?.cards ?? []).map((c) => ({ ...c, owned: owned.size === 0 || owned.has(Number(c.key)) }));
+      const cards = cardsWithOwnership();
       const crowdFavoritesActiveNow = crowdFavoritesActive();
       const winDataKnown = state.checklist !== null && state.lastScanFailedAt === null;
       const crowdFavorites = crowdFavoritesActiveNow
         ? resolveCrowdFavorites(state.crowdFavorites.ids, winDataKnown ? state.checklist?.cards : null, state.championIndex)
         : [];
       return send(200, {
+        fixture: Boolean(FIXTURE),
         lcuConnected: state.lcuConnected,
         gameflowPhase: state.gameflowPhase,
         player: playerKey(),
@@ -764,12 +827,10 @@ const server = http.createServer(async (req, res) => {
       const key = playerKey();
       if (!key) return send(400, { error: 'no player identity' });
       const api = makeTrackerApi(TRACKER);
-      if (req.method === 'POST') {
-        await api.addManualWin(key, champion);
-      } else if (req.method === 'DELETE') {
-        await api.removeManualWin(key, champion);
-      } else {
-        return send(405, { error: 'method not allowed' });
+      if (req.method !== 'POST' && req.method !== 'DELETE') return send(405, { error: 'method not allowed' });
+      if (!FIXTURE) {
+        if (req.method === 'POST') await api.addManualWin(key, champion);
+        else await api.removeManualWin(key, champion);
       }
       if (state.checklist) {
         const card = state.checklist.cards.find((c) => c.name === champion || c.id === champion);
@@ -789,7 +850,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 // Tests import the exported helpers without starting the server or LCU sockets.
-if (isEntryPoint(import.meta.url)) {
+if (isEntryPoint(import.meta.url) && FIXTURE) {
+  loadFixture();
+  server.listen(PORT, '127.0.0.1', () => console.log(`Arena Companion UI (sample data): http://localhost:${PORT}`));
+} else if (isEntryPoint(import.meta.url)) {
   const crowdFavoritesWs = new LcuSubscriber({
     resolveLockfile: readLockfile,
     reconnectDelayMs: 5000,

@@ -169,19 +169,27 @@ export async function update(api: TrackerApi, region: any, store: any, onProgres
 }
 
 export function aggregate(store: any, champions: any[], masteries: Record<string, any>, manualWins: Set<string>) {
-  const played: Record<string, { games: number; wins: number; last: number }> = {};
+  const played: Record<string, { games: number; wins: number; last: number; placed: number; placementSum: number; top4: number; firstWinAt: number }> = {};
   const placementCounts = new Array(8).fill(0);
   for (const rec of Object.values<any>(store.matches)) {
     const k = (rec.championName || '').toLowerCase();
-    const slot = (played[k] ||= { games: 0, wins: 0, last: 0 });
+    const slot = (played[k] ||= { games: 0, wins: 0, last: 0, placed: 0, placementSum: 0, top4: 0, firstWinAt: 0 });
     slot.games += 1;
-    if (rec.win) slot.wins += 1;
+    if (rec.win) {
+      slot.wins += 1;
+      if (rec.gameEnd && (!slot.firstWinAt || rec.gameEnd < slot.firstWinAt)) slot.firstWinAt = rec.gameEnd;
+    }
     if (rec.gameEnd && rec.gameEnd > slot.last) slot.last = rec.gameEnd;
-    if (Number.isInteger(rec.placement) && rec.placement >= 1 && rec.placement <= 8) placementCounts[rec.placement - 1] += 1;
+    if (Number.isInteger(rec.placement) && rec.placement >= 1 && rec.placement <= 8) {
+      placementCounts[rec.placement - 1] += 1;
+      slot.placed += 1;
+      slot.placementSum += rec.placement;
+      if (rec.placement <= 4) slot.top4 += 1;
+    }
   }
 
   const cards = champions.map((c) => {
-    const p = played[c.id.toLowerCase()] || { games: 0, wins: 0, last: 0 };
+    const p = played[c.id.toLowerCase()] || { games: 0, wins: 0, last: 0, placed: 0, placementSum: 0, top4: 0, firstWinAt: 0 };
     const manual = manualWins.has(c.id);
     const mastery = masteries[c.key];
     return {
@@ -189,6 +197,9 @@ export function aggregate(store: any, champions: any[], masteries: Record<string
       games: p.games,
       wins: p.wins,
       last: p.last,
+      avgPlacement: p.placed ? Math.round((p.placementSum / p.placed) * 10) / 10 : null,
+      top4: p.top4,
+      firstWinAt: p.firstWinAt,
       manual,
       won: p.wins > 0 || manual,
       masteryLevel: mastery?.level ?? 0,
@@ -223,4 +234,42 @@ export function aggregate(store: any, champions: any[], masteries: Record<string
     gamesScanned,
     placements,
   };
+}
+
+export interface MatchRow {
+  id: string;
+  /** ddragon champion id ("MonkeyKing"), or the raw match-v5 name when unknown. */
+  championId: string;
+  championName: string;
+  placement: number | null;
+  win: boolean;
+  gameEnd: number;
+  /** True for the game that first won this champion. */
+  firstWin: boolean;
+}
+
+/** Every stored Arena match, newest first, matched to ddragon champions. */
+export function matchList(store: any, champions: ReadonlyArray<{ id: string; name: string }>): MatchRow[] {
+  const byId = new Map(champions.map((c) => [c.id.toLowerCase(), c]));
+  const rows: MatchRow[] = Object.entries<any>(store?.matches ?? {}).map(([id, rec]) => {
+    const champion = byId.get(String(rec?.championName ?? '').toLowerCase());
+    return {
+      id,
+      championId: champion?.id ?? String(rec?.championName ?? ''),
+      championName: champion?.name ?? String(rec?.championName ?? ''),
+      placement: Number.isInteger(rec?.placement) && rec.placement >= 1 && rec.placement <= 8 ? rec.placement : null,
+      win: Boolean(rec?.win),
+      gameEnd: Number(rec?.gameEnd) || 0,
+      firstWin: false,
+    };
+  });
+  rows.sort((a, b) => a.gameEnd - b.gameEnd || a.id.localeCompare(b.id));
+  const won = new Set<string>();
+  for (const row of rows) {
+    if (row.win && !won.has(row.championId)) {
+      won.add(row.championId);
+      row.firstWin = true;
+    }
+  }
+  return rows.reverse();
 }

@@ -3,6 +3,8 @@ export interface DDragonChampion {
   key: string; // numeric key as string, e.g. "62"
   name: string; // display name, e.g. "Wukong"
   image: string; // portrait filename
+  title: string; // e.g. "the Nine-Tailed Fox"
+  tags: string[]; // classes, e.g. ["Mage", "Assassin"]
 }
 
 const FETCH_TIMEOUT_MS = 15_000;
@@ -15,7 +17,14 @@ export function parseChampions(payload: unknown): DDragonChampion[] {
     throw new Error('Invalid ddragon champion payload');
   }
   return Object.values(data)
-    .map((c) => ({ id: c.id, key: String(c.key), name: c.name, image: c.image?.full ?? `${c.id}.png` }))
+    .map((c) => ({
+      id: c.id,
+      key: String(c.key),
+      name: c.name,
+      image: c.image?.full ?? `${c.id}.png`,
+      title: typeof c.title === 'string' ? c.title : '',
+      tags: Array.isArray(c.tags) ? c.tags.filter((t: unknown) => typeof t === 'string') : [],
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

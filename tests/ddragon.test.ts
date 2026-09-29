@@ -6,7 +6,7 @@ const DDRAGON_SAMPLE = {
   type: 'champion',
   version: '16.1.1',
   data: {
-    Annie: { id: 'Annie', key: '1', name: 'Annie', image: { full: 'Annie.png' } },
+    Annie: { id: 'Annie', key: '1', name: 'Annie', title: 'the Dark Child', tags: ['Mage'], image: { full: 'Annie.png' } },
     Olaf: { id: 'Olaf', key: '2', name: 'Olaf', image: { full: 'Olaf.png' } },
     MonkeyKing: { id: 'MonkeyKing', key: '62', name: 'Wukong', image: { full: 'MonkeyKing.png' } },
   },
@@ -19,6 +19,9 @@ test('parseChampions flattens ddragon payload sorted by name', () => {
   const wukong = champs.find((c) => c.key === '62');
   assert.equal(wukong?.name, 'Wukong');
   assert.equal(wukong?.image, 'MonkeyKing.png');
+  assert.deepEqual(wukong?.tags, []);
+  assert.equal(champs[0].title, 'the Dark Child');
+  assert.deepEqual(champs[0].tags, ['Mage']);
 });
 
 test('parseChampions rejects empty payload', () => {
