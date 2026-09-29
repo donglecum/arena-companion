@@ -27,7 +27,17 @@ export class LcuClient {
     this.agent.destroy();
   }
 
-  get(path: string, timeoutMs = 5000): Promise<LcuResponse> {
+  /** Retries once when a pooled keep-alive socket turns out to be closed by the client. */
+  async get(path: string, timeoutMs = 5000): Promise<LcuResponse> {
+    try {
+      return await this.request(path, timeoutMs);
+    } catch (err) {
+      if (!isStaleSocketError(err)) throw err;
+      return this.request(path, timeoutMs);
+    }
+  }
+
+  private request(path: string, timeoutMs: number): Promise<LcuResponse> {
     return new Promise((resolve, reject) => {
       const req = https.get(
         this.base + path,
@@ -53,6 +63,12 @@ export class LcuClient {
     }
     return { status: res.status, json };
   }
+}
+
+/** Errors from reusing a keep-alive socket the other side already closed. */
+export function isStaleSocketError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === 'ECONNRESET' || code === 'EPIPE' || /socket hang up/i.test(String(err));
 }
 
 /** Remove sensitive/noisy fields from LCU payloads before logging or saving. */
