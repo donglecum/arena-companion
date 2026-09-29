@@ -1,6 +1,6 @@
 # Arena Companion
 
-Read-only League LCU companion for Arena win tracking, running on WINDOWSPC as a desktop app (Electron shell + local web backend).
+Read-only League LCU companion for Arena win tracking, running on Windows as a desktop app (Electron shell + local web backend).
 
 > **Just want the app?** Download **Arena Companion Setup.exe** from the [latest release](https://github.com/donglecum/arena-companion/releases/latest). Works with whichever Riot account your League client is logged into.
 
@@ -9,7 +9,7 @@ Read-only League LCU companion for Arena win tracking, running on WINDOWSPC as a
 ## What it does
 
 - Connects to the running League client via the LCU API (lockfile auth, local TLS only).
-- Detects the logged-in player automatically (Scro#Scro) and reads Riot's **official** "Adapt to All Situations" (Arena God, challenge 602002) count directly from the client.
+- Detects the logged-in player automatically and reads Riot's **official** "Adapt to All Situations" (Arena God, challenge 602002) count directly from the client.
 - Rebuilds the **provable** win checklist by scanning Arena match history through the existing `arena-tracker` server (`https://arena.scrolab.com`), plus Data Dragon champions and manual wins.
 - Desktop app (Electron) with a dark UI; the same UI is available locally at `http://localhost:8788`. The server listens on 127.0.0.1 only and rejects requests from other sites (foreign `Host`/`Origin`, non-JSON bodies), so web pages and the LAN cannot drive its API.
 
@@ -69,9 +69,8 @@ Black and electric blue. Tokens are CSS custom properties at the top of `src/ui/
 
 **Electron** provides native windows/tray/always-on-top. The backend stays plain Node; `Start-ArenaCompanion.ps1` launches Electron if installed, otherwise the backend alone (no overlay).
 
-## Running on WINDOWSPC
+## Running on Windows
 
-- Install dir: `C:\Users\micha\Apps\arena-companion`
 - Start at sign-in: installed copies register a Windows login item (`--hidden`, tray only) unless **Start with Windows** is off; check it under Task Manager › Startup apps. Dev and portable runs never register one. The old **ArenaCompanion** scheduled task is no longer needed — delete it (`schtasks /delete /tn ArenaCompanion /f`) so only one copy starts at sign-in.
 - Only one copy runs: starting it again (shortcut, installer) brings the open window forward. Updates are checked at start and every 4 hours; while one downloads or waits to install, the sidebar shows it ("Downloading v…", "Update v… ready"), and Settings › About shows the installed version and update state.
 - The main window reopens at the size and position it was left (saved in `main-window.json` in the app data folder); a window left on a disconnected monitor comes back on screen.
@@ -88,7 +87,7 @@ Black and electric blue. Tokens are CSS custom properties at the top of `src/ui/
 
 `npm test` — unit tests for request gating, config validation, the Start-with-Windows login item, main-window placement, region detection, the data-folder migration, update-restart deferral, the champion cache (with classes and titles), lockfile parsing/redaction, scan/manual-win and placement aggregation, retrying match batches that failed on an earlier scan (including empty and invalid-placement stores), favorite payload/status resolution, client-relative dock/clamp geometry, both Arena queues, and post-game transitions.
 
-## Capability matrix (WINDOWSPC live check 2026-09-27)
+## Capability matrix (live check 2026-09-27)
 
 | Capability | Status |
 |---|---|

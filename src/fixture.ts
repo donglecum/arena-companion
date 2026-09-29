@@ -63,12 +63,12 @@ export function buildFixture(now: number): Fixture {
   const won = new Set([...Object.values(matches).filter((m) => m.win).map((m) => m.championName), ...manual]);
   return {
     champions,
-    store: { account: { puuid: 'fixture', gameName: 'Scro', tagLine: 'Scro' }, matches },
+    store: { account: { puuid: 'fixture', gameName: 'Player', tagLine: 'NA1' }, matches },
     masteries,
     manual,
     owned,
     arenaGod: won.size + 7, // wins from before match-v5 retention
-    summoner: { gameName: 'Scro', tagLine: 'Scro', summonerLevel: 512 },
+    summoner: { gameName: 'Player', tagLine: 'NA1', summonerLevel: 512 },
   };
 }
 

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { applyConfigPatch, loadConfig, normalizeConfigPatch } from '../src/config.ts';
 
 test('normalizeConfigPatch accepts known keys and ignores unknown ones', () => {
-  const r = normalizeConfigPatch({ gameName: ' Scro ', tagLine: '#Scro', regionLabel: 'euw', miniMode: true, evil: 1 });
-  assert.deepEqual(r, { ok: true, set: { gameName: 'Scro', tagLine: 'Scro', regionLabel: 'EUW', miniMode: true }, clear: [] });
+  const r = normalizeConfigPatch({ gameName: ' Player ', tagLine: '#NA1', regionLabel: 'euw', miniMode: true, evil: 1 });
+  assert.deepEqual(r, { ok: true, set: { gameName: 'Player', tagLine: 'NA1', regionLabel: 'EUW', miniMode: true }, clear: [] });
 });
 
 test('normalizeConfigPatch clears the Riot ID and region with null or empty', () => {
@@ -17,7 +17,7 @@ test('normalizeConfigPatch clears the Riot ID and region with null or empty', ()
 
 test('normalizeConfigPatch rejects values that would break the server', () => {
   assert.equal(normalizeConfigPatch({ gameName: 42, tagLine: 'x' }).ok, false);
-  assert.equal(normalizeConfigPatch({ gameName: 'Scro' }).ok, false); // half a Riot ID
+  assert.equal(normalizeConfigPatch({ gameName: 'Player' }).ok, false); // half a Riot ID
   assert.equal(normalizeConfigPatch({ regionLabel: 'MARS' }).ok, false);
   assert.equal(normalizeConfigPatch({ alwaysOnTop: 'yes' }).ok, false);
   assert.equal(normalizeConfigPatch({ launchAtLogin: 1 }).ok, false);
