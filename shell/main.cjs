@@ -2,7 +2,7 @@
 // Spawns the existing Node backend and presents it in a native window with
 // tray plus a separate always-on-top Crowd Favorites overlay for champ select
 // or Settings preview. The main window opens only when requested from the tray.
-const { app, BrowserWindow, Tray, Menu, nativeImage, screen, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, screen, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -52,6 +52,8 @@ let overlaySettingBounds = false;
 let smokeErrorLogged = '';
 let statusFailures = 0;
 let lastGameflowPhase = null;
+let lastNotifiedEvent = null;
+const shellStartedAt = Date.now();
 
 let serverDataEnv = null;
 
@@ -474,6 +476,19 @@ async function fitOverlayHeight() {
   }
 }
 
+// The main window usually stays hidden, so a first win also gets a Windows
+// notification (the in-window toast alone was easy to miss).
+function notifyPostGame(event) {
+  if (!event || event.type !== 'new-win' || typeof event.at !== 'string' || event.at === lastNotifiedEvent) return;
+  lastNotifiedEvent = event.at;
+  if (Date.parse(event.at) < shellStartedAt || !Notification.isSupported()) return;
+  const champion = typeof event.champion === 'string' && event.champion ? event.champion : 'a new champion';
+  const count = Number.isFinite(event.wonCount) ? ` · ${event.wonCount} champions won` : '';
+  const notification = new Notification({ title: 'First Arena win!', body: `${champion}${count}`, icon: ICON_PATH });
+  notification.on('click', showMainWindow);
+  notification.show();
+}
+
 // Reason string for the overlay-hide log line (helps diagnose champ select exits).
 function overlayHideReason(s, favorites) {
   if (s.crowdFavoritesActive !== true) return 'not in arena champ select';
@@ -491,6 +506,7 @@ async function pollStatus() {
     return;
   }
   statusFailures = 0;
+  notifyPostGame(s.lastEvent);
   lastGameflowPhase = typeof s.gameflowPhase === 'string' ? s.gameflowPhase : null;
   if (s.config?.alwaysOnTop != null) {
     if (win.isAlwaysOnTop() !== !!s.config.alwaysOnTop) win.setAlwaysOnTop(!!s.config.alwaysOnTop);

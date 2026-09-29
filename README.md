@@ -18,7 +18,7 @@ Read-only League LCU companion for Arena win tracking, running on WINDOWSPC as a
 - **Dashboard** — Arena God hero (official count in gold with progress bar, honest provable/manual/unrecoverable breakdown), stat cards (games scanned, owned, wins, last sync with stale indicator), a Placements card with win rate (1st), last-place rate (8th), and percentages/game counts for 1st–8th across scanned Arena games, recent Arena games strip with placement badges, LCU connection pill in the header.
 - **Champions** — portrait grid of all champions with status chips (WON / NEEDED / MANUAL), search, filter chips (Needed/All/Won/Manual), sort (A–Z, Mastery, Recently played), unowned champions desaturated with a lock, click any tile for a detail popover with manual mark/unmark (writes through to arena-tracker).
 - **Champ Select** — the main window stays hidden or where you left it; open it from the tray when needed. During Arena champ select (`CHERRY`, queue 1700 or 1750), only a small always-on-top **Crowd Favorites** panel appears automatically, with each lobby favorite's portrait and ✓ won / ✗ still needed (or ? when win data is unavailable). It hides after champ select and while the game runs. On Windows it docks outside the League client's right edge with a 9 DIP gap, falling inside when there is no room; it follows moves/resizes across monitors. Drag vertically to save its offset from the client top; if the client window is unavailable, the panel uses its last free position. The main view retains the current hover/pick card, needed-owned grid, and mini mode.
-- **Post-game** — on leaving an Arena match, runs an incremental rescan and toasts a celebration when you first-win a new champion ("First Arena win on X!").
+- **Post-game** — on leaving an Arena match, runs an incremental rescan and toasts a celebration when you first-win a new champion ("First Arena win on X!"), also shown as a Windows notification since the main window usually stays hidden.
 - **Settings** — Riot ID override (leave empty to follow the account logged into League), region (auto-detected from the client, or pinned), mini-mode default, always-on-top, full rescan, and a **Crowd Favorites panel** button to show a clearly labeled sample preview for positioning. With the client visible, drag the preview up/down to set its relative height, then click **Done**; without the client, dragging sets the fallback position. A real Arena champ select takes over while active; if the preview remains enabled, it resumes afterward. Preview mode is not saved and starts off after an app restart.
 
 ## Design system
@@ -51,6 +51,7 @@ CSS custom properties in `src/ui/app.css`:
 
 - Install dir: `C:\Users\micha\Apps\arena-companion`
 - Scheduled task **ArenaCompanion** runs the Electron app interactively at logon; `schtasks /run /tn ArenaCompanion` starts it immediately while signed in.
+- Only one copy runs: starting it again (shortcut, scheduled task, installer) brings the open window forward. Updates are re-checked every 4 hours.
 - Data: the Electron shell keeps `companion-config.json` and the match `cache/` in the per-user app data folder (`%APPDATA%\<app name>`), which survives updates; older copies in the app folder are copied there once. Running the backend alone (`npm start`) still uses the working directory, or `ARENA_COMPANION_CONFIG` / `ARENA_CACHE`.
 - Runtime logs: `logs\arena-companion.log` / `.err.log`. Favorite IDs and resolved statuses, WebSocket connection, overlay shown/hidden, and safe errors are recorded there; no lockfile password or auth header.
 - Node 24 runs TypeScript directly. Install with `npm install` in the app directory; Koffi includes prebuilt Windows binaries and needs no compiler. If Electron's binary is missing, run `node node_modules\electron\install.js`. The Electron overlay needs a logged-in desktop session.
@@ -59,7 +60,7 @@ CSS custom properties in `src/ui/app.css`:
 
 `npm run typecheck` — `tsc` over `src/` and `tests/` (no output; Node runs the `.ts` files directly). CI runs it and `npm test` on every push and pull request.
 
-`npm test` — unit tests for request gating, config validation, region detection, the data-folder migration, update-restart deferral, the champion cache, lockfile parsing/redaction, scan/manual-win and placement aggregation (including empty and invalid-placement stores), favorite payload/status resolution, client-relative dock/clamp geometry, both Arena queues, and post-game transitions.
+`npm test` — unit tests for request gating, config validation, region detection, the data-folder migration, update-restart deferral, the champion cache, lockfile parsing/redaction, scan/manual-win and placement aggregation, retrying match batches that failed on an earlier scan (including empty and invalid-placement stores), favorite payload/status resolution, client-relative dock/clamp geometry, both Arena queues, and post-game transitions.
 
 ## Capability matrix (WINDOWSPC live check 2026-09-27)
 
@@ -82,6 +83,5 @@ CSS custom properties in `src/ui/app.css`:
 ## Next features (not built)
 
 - Queue-mate readiness: LCU lobby endpoints can show party members' readiness
-- Windows native toast notifications (in-window toast shipped; native is a shell add)
 - Multi-account / friends' checklists
 
