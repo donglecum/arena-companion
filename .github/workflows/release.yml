@@ -56,6 +56,8 @@ jobs:
           Set-Content -Path (Join-Path $out 'SHA256SUMS.txt') -Value $sums -Encoding ascii
           Get-ChildItem $out | Format-Table Name, Length
 
+          # A release gh creates is published and marked latest straight away; an existing one
+          # (a re-run) just gets its assets replaced. Editing it afterwards fails with a 422.
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --repo $env:GITHUB_REPOSITORY --title "Arena Companion $tag" --generate-notes --target $env:GITHUB_SHA
@@ -63,5 +65,3 @@ jobs:
           }
           gh release upload $tag (Get-ChildItem $out -File).FullName --repo $env:GITHUB_REPOSITORY --clobber
           if ($LASTEXITCODE -ne 0) { throw "upload failed" }
-          gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "Arena Companion $tag" --draft=false --latest
-          if ($LASTEXITCODE -ne 0) { throw "could not publish release $tag" }
