@@ -29,7 +29,39 @@ jobs:
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match package.json version $version" }
-      - name: Build and publish
-        run: npx electron-builder --win --publish always
+      - name: Build
+        run: npx electron-builder --win --publish never
+      # electron-builder's own publishing raced two release creations and exited
+      # before its uploads finished (v0.2.0 first run), so upload in one step here.
+      - name: Publish the release
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = "v$version"
+          if (-not (Test-Path dist/latest.yml)) { throw "dist/latest.yml was not produced" }
+          $out = New-Item -ItemType Directory -Force -Path release-assets
+          # GitHub asset names can't hold spaces; latest.yml already names the dashed files.
+          Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(exe|blockmap)$' -and $_.Name -notmatch '__uninstaller' } | ForEach-Object {
+            Copy-Item $_.FullName (Join-Path $out ($_.Name -replace ' ', '-'))
+          }
+          Copy-Item dist/latest.yml $out
+          # Every file latest.yml names must be uploaded, or installed copies would 404 on update.
+          foreach ($match in Select-String -Path dist/latest.yml -Pattern '^\s*(?:-\s*)?(?:url|path):\s*(.+)$') {
+            $name = $match.Matches[0].Groups[1].Value.Trim()
+            if (-not (Test-Path (Join-Path $out $name))) { throw "latest.yml references $name, which was not built" }
+          }
+          $sums = Get-ChildItem $out -Filter *.exe | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" }
+          Set-Content -Path (Join-Path $out 'SHA256SUMS.txt') -Value $sums -Encoding ascii
+          Get-ChildItem $out | Format-Table Name, Length
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo $env:GITHUB_REPOSITORY --title "Arena Companion $tag" --generate-notes --target $env:GITHUB_SHA
+            if ($LASTEXITCODE -ne 0) { throw "could not create release $tag" }
+          }
+          gh release upload $tag (Get-ChildItem $out -File).FullName --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw "upload failed" }
+          gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "Arena Companion $tag" --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw "could not publish release $tag" }
