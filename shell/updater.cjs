@@ -20,7 +20,10 @@ function shouldAutoUpdate(isPackaged, env = process.env) {
   return Boolean(isPackaged && !env.PORTABLE_EXECUTABLE_DIR);
 }
 
-function startAutoUpdate(app, { log = console.log, isBusy = () => false, retryMs = 30_000 } = {}) {
+// The app runs all day from logon, so keep checking instead of only at launch.
+const RECHECK_MS = 4 * 3600_000;
+
+function startAutoUpdate(app, { log = console.log, isBusy = () => false, retryMs = 30_000, recheckMs = RECHECK_MS } = {}) {
   if (!shouldAutoUpdate(app.isPackaged)) return;
   let autoUpdater;
   try {
@@ -57,8 +60,13 @@ function startAutoUpdate(app, { log = console.log, isBusy = () => false, retryMs
     installing = true;
     install();
   });
-  log('[updater] checking…');
-  autoUpdater.checkForUpdates().catch((err) => log(`[updater] check failed: ${String(err).slice(0, 200)}`));
+  const check = () => {
+    if (installing) return; // already downloaded; waiting for a quiet phase
+    log('[updater] checking…');
+    autoUpdater.checkForUpdates().catch((err) => log(`[updater] check failed: ${String(err).slice(0, 200)}`));
+  };
+  check();
+  setInterval(check, recheckMs).unref?.();
 }
 
 module.exports = { shouldAutoUpdate, isBusyPhase, startAutoUpdate };

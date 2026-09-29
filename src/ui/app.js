@@ -16,7 +16,10 @@ function showView(v) {
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === v));
 }
 
-window.addEventListener('hashchange', () => showView(currentView()));
+window.addEventListener('hashchange', () => {
+  showView(currentView());
+  if (DATA) renderCurrentView(); // don't wait for the next status tick
+});
 
 /* fetch JSON; a non-2xx response throws with the server's error message. */
 async function j(url, opts) {
@@ -240,13 +243,19 @@ document.addEventListener('click', (e) => {
 });
 
 /* ---------- champ select ---------- */
+let miniApplied = false;
+
 function renderChampSelect() {
   const cs = DATA.champSelect;
   const live = cs && cs.available;
   $('cs-idle').classList.toggle('hidden', live);
   $('cs-live').classList.toggle('hidden', !live);
   if (!live) return;
-  if (DATA.config?.miniMode) document.body.classList.add('mini');
+  // Apply the mini-mode default once per champ select, so the Mini button can still undo it.
+  if (!miniApplied) {
+    miniApplied = true;
+    if (DATA.config?.miniMode) document.body.classList.add('mini');
+  }
 
   const byName = Object.fromEntries(DATA.cards.map((c) => [c.name, c]));
   const cur = cs.championName ? byName[cs.championName] : null;
@@ -425,13 +434,18 @@ async function tick() {
   } catch {
     return; // server briefly unreachable; keep last state
   }
+  if (!DATA.champSelect?.available) miniApplied = false;
   renderConn();
+  renderCurrentView();
+  maybeToast();
+}
+
+function renderCurrentView() {
   const v = currentView();
   if (v === 'dashboard') renderDashboard();
   if (v === 'champions') renderChampions();
   if (v === 'champselect') renderChampSelect();
   if (v === 'settings') renderSettings();
-  maybeToast();
 }
 
 $('search').addEventListener('input', (e) => { ui.search = e.target.value; renderChampions(); });

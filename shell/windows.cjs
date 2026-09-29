@@ -70,13 +70,27 @@ function processNames(names) {
   return found;
 }
 
+// Listing every process is the expensive part and the League processes change
+// rarely, so reuse the result briefly (the dock polls every 750ms).
+const PROCESS_CACHE_MS = 2000;
+let processCache = null;
+
+function cachedProcessNames(names, now = Date.now()) {
+  const key = names.join('|').toLowerCase();
+  if (processCache && processCache.key === key && now - processCache.at < PROCESS_CACHE_MS) return processCache.found;
+  const found = processNames(names);
+  processCache = { key, at: now, found };
+  return found;
+}
+
 // extraTargets: additional process names accepted as dock targets. Needed
 // because LeagueClientUx.exe owns the actual client UI window (champ select,
 // lobby) in current builds, while LeagueClient.exe — the lockfile pid — owns
 // no visible windows. Never pass 'League of Legends.exe' (the game window).
-function inspect(target = 'LeagueClient.exe', extraTargets = []) {
+function inspect(target = 'LeagueClient.exe', extraTargets = [], { fresh = false } = {}) {
   const w = bindings();
-  const names = processNames([target, ...extraTargets, 'League of Legends.exe']);
+  const all = [target, ...extraTargets, 'League of Legends.exe'];
+  const names = fresh ? processNames(all) : cachedProcessNames(all);
   const gameRunning = (names.get('league of legends.exe')?.size ?? 0) > 0;
   const pidToSource = new Map();
   for (const name of [target, ...extraTargets]) {

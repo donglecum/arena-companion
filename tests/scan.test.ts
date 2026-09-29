@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectMatchIds, collectFreshMatchIds, aggregate } from '../src/scan.ts';
+import { collectMatchIds, collectFreshMatchIds, aggregate, update } from '../src/scan.ts';
 
 test('collectMatchIds pages until depth and stops on short page', async () => {
   const pages = [
@@ -118,4 +118,23 @@ test('aggregate leaves invalid placements uncounted while the scanned denominato
   assert.equal(result.placements.reduce((n, p) => n + p.count, 0), 2);
   assert.equal(result.placements[0].percent, 20);
   assert.equal(result.placements[7].percent, 20);
+});
+
+test('update retries a failed batch that sits behind a successful newer one', async () => {
+  const history = [...Array.from({ length: 60 }, (_, i) => `m${i + 1}`), 'known'];
+  let failing = true;
+  const api: any = {
+    getMatchIds: async (_c: string, _p: string, start: number, count: number) => history.slice(start, start + count),
+    getMatchSummaries: async (_c: string, ids: string[]) => {
+      if (failing && ids.includes('m30')) throw new Error('tracker 503');
+      return { records: {}, seen: ids };
+    },
+  };
+  let store: any = { account: { puuid: 'p' }, matches: { known: {} }, seen: { known: 1 } };
+  store = await update(api, { cluster: 'americas' }, store);
+  assert.equal(store.pending.length, 25);
+  failing = false;
+  store = await update(api, { cluster: 'americas' }, store);
+  assert.deepEqual(history.filter((id) => !(id in store.seen)), []);
+  assert.deepEqual(store.pending, []);
 });

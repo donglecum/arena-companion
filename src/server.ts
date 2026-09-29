@@ -6,7 +6,7 @@ import { parseLockfile, type Lockfile } from './lockfile.ts';
 import { LcuClient } from './lcu.ts';
 import { makeTrackerApi } from './trackerApi.ts';
 import { fetchChampionsCached } from './ddragon.ts';
-import { aggregate, loadStore, saveStore, update, fullScan } from './scan.ts';
+import { aggregate, loadStore, saveStore, update, fullScan, writeFileAtomic } from './scan.ts';
 import { REGIONS, regionByLabel, regionFromClient } from './regions.ts';
 import { applyConfigPatch, loadConfig, normalizeConfigPatch, type CompanionConfig } from './config.ts';
 import { isJsonContentType, rejectRequest } from './httpGuard.ts';
@@ -25,6 +25,12 @@ const CONFIG_PATH = process.env.ARENA_COMPANION_CONFIG ?? 'companion-config.json
 const OWNED_REFRESH_MS = 24 * 3600_000;
 const CROWD_FAVORITES_PATH = '/lol-lobby-team-builder/champ-select/v1/crowd-favorite-champion-list';
 const CROWD_FAVORITES_REFRESH_MS = 15_000;
+const GAMEFLOW_PHASE_PATH = '/lol-gameflow/v1/gameflow-phase';
+/** The challenges payload is large and only changes after a game; the summoner rarely changes. */
+const CHALLENGES_REFRESH_MS = 5 * 60_000;
+const SUMMONER_REFRESH_MS = 60_000;
+/** LCU event topics: one path each instead of every client event. */
+const lcuTopic = (uri: string) => `OnJsonApiEvent${uri.replace(/\//g, '_')}`;
 
 const state: {
   lcuConnected: boolean;
@@ -38,6 +44,8 @@ const state: {
   arenaQueueActive: boolean; // true while inside an Arena game flow
   ownedChampIds: number[];
   ownedFetchedAt: number;
+  challengesFetchedAt: number;
+  summonerFetchedAt: number;
   ddragonVersion: string | null;
   lastSync: string | null;
   checklist: { wonCount: number; total: number; gamesScanned: number; placements: { placement: number; count: number; percent: number }[]; cards: any[]; recent: any[] } | null;
@@ -64,6 +72,8 @@ const state: {
   arenaQueueActive: false,
   ownedChampIds: [],
   ownedFetchedAt: 0,
+  challengesFetchedAt: 0,
+  summonerFetchedAt: 0,
   ddragonVersion: null,
   lastSync: null,
   checklist: null,
@@ -86,7 +96,7 @@ try {
 }
 
 function saveConfig() {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(state.config, null, 2));
+  writeFileAtomic(CONFIG_PATH, JSON.stringify(state.config, null, 2));
 }
 
 function readLockfile(): Lockfile | null {
@@ -122,9 +132,22 @@ function readQueue(session: unknown): LcuQueueInfo | null {
   };
 }
 
+let cachedLcu: { key: string; client: LcuClient } | null = null;
+
+/** One keep-alive client per lockfile, so polls reuse a TLS connection instead of handshaking each time. */
 function lcu(): LcuClient | null {
   const lockfile = readLockfile();
-  return lockfile ? new LcuClient(lockfile) : null;
+  if (!lockfile) {
+    cachedLcu?.client.close();
+    cachedLcu = null;
+    return null;
+  }
+  const key = `${lockfile.port}:${lockfile.password}`;
+  if (cachedLcu?.key !== key) {
+    cachedLcu?.client.close();
+    cachedLcu = { key, client: new LcuClient(lockfile) };
+  }
+  return cachedLcu.client;
 }
 
 /** Riot ID to scan: the Settings override when set, otherwise the logged-in summoner. */
@@ -254,6 +277,11 @@ function clearCrowdFavorites(reason: string) {
 
 /** Keep Create events even when they race the 3-second phase poll; display waits for Arena confirmation. */
 function handleLcuEvent(event: LcuEvent) {
+  if (event.uri === GAMEFLOW_PHASE_PATH) {
+    // React to phase changes right away instead of waiting for the next poll tick.
+    void pollTick();
+    return;
+  }
   if (event.uri !== CROWD_FAVORITES_PATH) return;
   if (event.eventType === 'Delete') {
     clearCrowdFavorites('WS Delete');
@@ -357,6 +385,8 @@ async function pollLcu() {
     state.lcuConnected = false;
     state.gameflowPhase = '<no lockfile>';
     state.detectedRegion = null; // the next client session may be another account
+    state.challengesFetchedAt = 0;
+    state.summonerFetchedAt = 0;
     return;
   }
   try {
@@ -366,31 +396,43 @@ async function pollLcu() {
   } catch {
     state.lcuConnected = false;
     state.gameflowPhase = '<unreachable>';
+    state.challengesFetchedAt = 0;
+    state.summonerFetchedAt = 0;
     return;
   }
-  try {
-    const s = await client.getJson('/lol-summoner/v1/current-summoner');
-    if (s.status === 200 && s.json && typeof s.json === 'object') {
-      const j = s.json as Record<string, unknown>;
-      state.summoner = {
-        gameName: String(j.gameName ?? ''),
-        tagLine: String(j.tagLine ?? ''),
-        summonerLevel: Number(j.summonerLevel ?? 0),
-      };
+  if (!state.summoner || Date.now() - state.summonerFetchedAt > SUMMONER_REFRESH_MS) {
+    try {
+      const s = await client.getJson('/lol-summoner/v1/current-summoner');
+      if (s.status === 200 && s.json && typeof s.json === 'object') {
+        const j = s.json as Record<string, unknown>;
+        state.summoner = {
+          gameName: String(j.gameName ?? ''),
+          tagLine: String(j.tagLine ?? ''),
+          summonerLevel: Number(j.summonerLevel ?? 0),
+        };
+        state.summonerFetchedAt = Date.now();
+      }
+    } catch {
+      /* keep previous */
     }
-  } catch {
-    /* keep previous */
   }
   if (!state.detectedRegion) await detectRegion(client);
   if (keyBefore) rescanIfPlayerChanged(keyBefore, 'client account or region changed');
-  try {
-    const c = await client.getJson('/lol-challenges/v1/challenges/local-player');
-    if (c.status === 200 && c.json && typeof c.json === 'object') {
-      const arenaGod = (c.json as Record<string, any>)['602002'];
-      if (arenaGod?.currentValue != null) state.arenaGod = Number(arenaGod.currentValue);
+  // Leaving a game refreshes it sooner: that is when the Arena God count can move.
+  if (state.prevPhase !== state.gameflowPhase && ['EndOfGame', 'PreEndOfGame'].includes(state.gameflowPhase)) {
+    state.challengesFetchedAt = 0;
+  }
+  if (Date.now() - state.challengesFetchedAt > CHALLENGES_REFRESH_MS) {
+    try {
+      const c = await client.getJson('/lol-challenges/v1/challenges/local-player');
+      if (c.status === 200 && c.json && typeof c.json === 'object') {
+        const arenaGod = (c.json as Record<string, any>)['602002'];
+        if (arenaGod?.currentValue != null) state.arenaGod = Number(arenaGod.currentValue);
+        state.challengesFetchedAt = Date.now();
+      }
+    } catch {
+      /* best effort */
     }
-  } catch {
-    /* best effort */
   }
 
   // Owned champions: server-side cache, refreshed daily while LCU is up.
@@ -501,6 +543,7 @@ async function postGameRescan() {
   const lastPlayed = state.checklist?.recent?.[0]?.championName ?? null;
   console.log('Arena game ended — running incremental rescan');
   const r = await refreshChecklist(false);
+  state.challengesFetchedAt = 0; // pick up the new Arena God count on the next poll
   if (r.ok && state.checklist) {
     const after = { wonCount: state.checklist.wonCount, wonChampNames: wonChampNames() };
     state.lastEvent = computePostGameEvent(before, after, lastPlayed);
@@ -578,6 +621,7 @@ async function runScan(full: boolean): Promise<ScanResult> {
     if (playerKeyFor(region.platform, gameName, tagLine) !== playerKey()) return { ok: false, error: 'player changed during scan' };
     state.checklist = result;
     state.lastScanFailedAt = null;
+    if (store.pending?.length) console.log(`[scan] ${store.pending.length} match(es) could not be fetched; retrying on the next scan`);
     if (state.crowdFavorites.ids.length) setCrowdFavorites(state.crowdFavorites.ids, 'checklist refreshed', true);
     state.lastSync = new Date().toISOString();
     return { ok: true };
@@ -749,6 +793,7 @@ if (isEntryPoint(import.meta.url)) {
   const crowdFavoritesWs = new LcuSubscriber({
     resolveLockfile: readLockfile,
     reconnectDelayMs: 5000,
+    topics: [lcuTopic(CROWD_FAVORITES_PATH), lcuTopic(GAMEFLOW_PHASE_PATH)],
     onEvent: handleLcuEvent,
     onStatus: (status) => {
       if (status.connected) {

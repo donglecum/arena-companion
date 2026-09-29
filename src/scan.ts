@@ -21,7 +21,14 @@ export function loadStore(cacheDir: string, platform: string, gameName: string, 
 
 export function saveStore(cacheDir: string, platform: string, gameName: string, tagLine: string, store: unknown) {
   fs.mkdirSync(cacheDir, { recursive: true });
-  fs.writeFileSync(storePath(cacheDir, platform, gameName, tagLine), JSON.stringify(store));
+  writeFileAtomic(storePath(cacheDir, platform, gameName, tagLine), JSON.stringify(store));
+}
+
+/** Write via a temp file and rename, so a crash mid-write never leaves a truncated file behind. */
+export function writeFileAtomic(file: string, data: string) {
+  const temporary = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, data);
+  fs.renameSync(temporary, file);
 }
 
 async function fetchMatches(api: TrackerApi, cluster: string, identity: any, ids: string[], onEach?: (n: number) => void) {
@@ -29,6 +36,7 @@ async function fetchMatches(api: TrackerApi, cluster: string, identity: any, ids
   const POOL = 2;
   const arena: Record<string, any> = {};
   const seen: string[] = [];
+  const failed: string[] = [];
   const batches: string[][] = [];
   for (let start = 0; start < ids.length; start += BATCH_SIZE) batches.push(ids.slice(start, start + BATCH_SIZE));
   let i = 0;
@@ -40,13 +48,15 @@ async function fetchMatches(api: TrackerApi, cluster: string, identity: any, ids
         Object.assign(arena, result.records || {});
         seen.push(...(result.seen || []));
       } catch {
-        // Leave the whole batch unseen so a later update retries it.
+        // Recorded as pending: an incremental update stops at the first known id, so a
+        // failed batch behind a successful newer one would otherwise never be retried.
+        failed.push(...batch);
       }
       onEach?.(batch.length);
     }
   }
   await Promise.all(Array.from({ length: Math.min(POOL, batches.length) }, worker));
-  return { arena, seen };
+  return { arena, seen, failed };
 }
 
 export async function collectMatchIds(
@@ -93,7 +103,7 @@ export async function fullScan(
   };
 
   let done = 0;
-  const { arena, seen } = await fetchMatches(api, region.cluster, identity, ids, (count) => {
+  const { arena, seen, failed } = await fetchMatches(api, region.cluster, identity, ids, (count) => {
     done += count;
     onProgress?.({ phase: 'matches', done, total: ids.length });
   });
@@ -102,6 +112,7 @@ export async function fullScan(
     account: { ...identity, platform: region.platform, region: region.label },
     matches: arena,
     seen: seen.reduce((m: Record<string, number>, id: string) => ((m[id] = 1), m), {}),
+    pending: failed,
     scanDepth: Number.isFinite(depth) ? depth : null,
     historyExhausted: exhausted,
     lastUpdated: Date.now(),
@@ -135,10 +146,15 @@ export async function collectFreshMatchIds(
 export async function update(api: TrackerApi, region: any, store: any, onProgress?: (p: any) => void) {
   const { puuid } = store.account;
   const seen = store.seen || {};
-  const fresh = await collectFreshMatchIds(region.cluster, puuid, seen, store.matches, api.getMatchIds);
+  const newest = await collectFreshMatchIds(region.cluster, puuid, seen, store.matches, api.getMatchIds);
+  // Retry batches that failed on an earlier scan alongside the new matches.
+  const retry = (Array.isArray(store.pending) ? store.pending : []).filter(
+    (id: unknown) => typeof id === 'string' && !(id in seen) && !(id in store.matches),
+  );
+  const fresh = [...new Set([...newest, ...retry])];
 
   let done = 0;
-  const { arena, seen: newlySeen } = await fetchMatches(api, region.cluster, store.account, fresh, (count) => {
+  const { arena, seen: newlySeen, failed } = await fetchMatches(api, region.cluster, store.account, fresh, (count) => {
     done += count;
     onProgress?.({ phase: 'matches', done, total: fresh.length });
   });
@@ -147,6 +163,7 @@ export async function update(api: TrackerApi, region: any, store: any, onProgres
     ...store,
     matches: { ...store.matches, ...arena },
     seen: { ...seen, ...newlySeen.reduce((m: Record<string, number>, id: string) => ((m[id] = 1), m), {}) },
+    pending: failed,
     lastUpdated: Date.now(),
   };
 }
