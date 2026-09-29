@@ -1,11 +1,14 @@
 // Ported from arena-tracker src/lib/api.js — same endpoints, but with an
 // explicit base URL instead of browser-relative fetches.
 
+const REQUEST_TIMEOUT_MS = 60_000;
+
 export function makeTrackerApi(baseUrl: string) {
   const riot = (host: string, pathAndQuery: string) => `${baseUrl}/api/riot/${host}/${pathAndQuery}`;
 
   async function getJSON(url: string, options?: RequestInit): Promise<any> {
-    const res = await fetch(url, options);
+    // Match batches fan out to Riot on the tracker side, so allow a generous timeout.
+    const res = await fetch(url, { ...options, signal: options?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     const text = await res.text();
     let body: any;
     try {

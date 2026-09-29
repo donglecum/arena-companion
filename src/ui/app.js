@@ -18,10 +18,16 @@ function showView(v) {
 
 window.addEventListener('hashchange', () => showView(currentView()));
 
+/* fetch JSON; a non-2xx response throws with the server's error message. */
 async function j(url, opts) {
   const r = await fetch(url, opts);
-  return r.json();
+  const body = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(body?.error || `HTTP ${r.status}`);
+  return body;
 }
+
+const postJson = (url, body) =>
+  j(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
 
 function portrait(card) {
   if (!DATA?.ddragonVersion || !card?.image) return '';
@@ -89,10 +95,10 @@ function renderDashboard() {
       const img = portrait(card);
       const p = g.placement;
       const cls = p === 1 ? 'p1' : p <= 4 ? 'p24' : '';
-      return `<div class="recent-item" title="${g.championName} · ${ordinal(p)} · ${new Date(g.gameEnd).toLocaleDateString()}">
-        ${img ? `<img src="${img}" alt="">` : ''}
-        <span class="place ${cls}">${p}</span>
-        <div class="rname">${g.championName}</div></div>`;
+      return `<div class="recent-item" title="${esc(g.championName)} · ${ordinal(p)} · ${new Date(g.gameEnd).toLocaleDateString()}">
+        ${img ? `<img src="${esc(img)}" alt="">` : ''}
+        <span class="place ${cls}">${esc(p)}</span>
+        <div class="rname">${esc(g.championName)}</div></div>`;
     })
     .join('');
 }
@@ -168,7 +174,7 @@ function renderChampions() {
     .map((c) => `<div class="champ-tile ${c.owned === false ? 'unowned' : ''}" data-name="${esc(c.name)}">
       ${c.owned === false ? '<span class="lock">🔒</span>' : ''}
       ${chipFor(c)}
-      <img data-src="${portrait(c)}" alt="" onload="this.classList.add('loaded')">
+      <img data-src="${esc(portrait(c))}" alt="" onload="this.classList.add('loaded')">
       <div class="cname">${esc(c.name)}</div>
       <div class="csub">${c.masteryLevel ? 'M' + c.masteryLevel + ' · ' : ''}${c.games}g ${c.wins}w</div>
     </div>`)
@@ -184,12 +190,19 @@ function renderChampions() {
 }
 
 function esc(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function openPopover(name, e) {
   const card = DATA.cards.find((c) => c.name === name);
   if (!card) return;
+  // Only a manual mark can be removed; a match-history win has nothing to toggle.
+  const action = card.manual ? 'remove' : card.won ? null : 'add';
   const pop = $('popover');
   pop.innerHTML = `<div class="pname">${esc(card.name)}</div>
     ${chipFor(card)}
@@ -197,15 +210,26 @@ function openPopover(name, e) {
     <div class="prow"><span>Wins</span><b>${card.wins}</b></div>
     <div class="prow"><span>Last played</span><b>${card.last ? new Date(card.last).toLocaleDateString() : '—'}</b></div>
     <div class="prow"><span>Mastery</span><b>${card.masteryLevel ? 'M' + card.masteryLevel + ' · ' + card.masteryPoints.toLocaleString() : '—'}</b></div>
-    <button class="btn ${card.won ? 'ghost' : 'primary'}" id="pop-toggle">${card.won ? 'Remove manual mark' : 'Mark as won (manual)'}</button>`;
+    ${action
+      ? `<button class="btn ${action === 'remove' ? 'ghost' : 'primary'}" id="pop-toggle">${action === 'remove' ? 'Remove manual mark' : 'Mark as won (manual)'}</button>`
+      : '<div class="pop-msg dim">Won in match history — no manual mark needed.</div>'}
+    <div id="pop-msg" class="pop-msg error"></div>`;
   pop.classList.remove('hidden');
   const r = e.currentTarget.getBoundingClientRect();
   pop.style.left = Math.min(window.innerWidth - 250, r.left) + 'px';
   pop.style.top = Math.min(window.innerHeight - 240, r.bottom + 6) + 'px';
+  if (!action) return;
   $('pop-toggle').onclick = async () => {
-    await j('/api/manual/' + encodeURIComponent(card.id), { method: card.won ? 'DELETE' : 'POST' });
-    pop.classList.add('hidden');
-    await tick();
+    const btn = $('pop-toggle');
+    btn.disabled = true;
+    try {
+      await j('/api/manual/' + encodeURIComponent(card.id), { method: action === 'remove' ? 'DELETE' : 'POST' });
+      pop.classList.add('hidden');
+      await tick();
+    } catch (err) {
+      $('pop-msg').textContent = `Couldn't save: ${err.message}`;
+      btn.disabled = false;
+    }
   };
 }
 
@@ -244,7 +268,7 @@ function renderChampSelect() {
       const card = byName[n.name];
       return `<div class="champ-tile" data-name="${esc(n.name)}">
         <span class="chip NEEDED">Needed</span>
-        <img src="${portrait(card)}" alt="" onload="this.classList.add('loaded')">
+        <img src="${esc(portrait(card))}" alt="" onload="this.classList.add('loaded')">
         <div class="cname">${esc(n.name)}</div>
         <div class="csub">${n.masteryLevel ? 'M' + n.masteryLevel : ''}</div>
       </div>`;
@@ -272,12 +296,39 @@ function renderSettings() {
   previewBtn.classList.toggle('ghost', !preview);
   $('overlay-preview-msg').textContent =
     overlayPreviewError || (preview ? 'Drag up or down to set the height beside League, then press Done. Without the client, drag to set a fallback position.' : '');
+  $('set-player-cur').textContent = DATA.player ? `(current: ${DATA.player})` : '';
+  renderRegionSelect();
   if (document.activeElement === $('set-riotid')) return; // don't clobber typing
   $('set-riotid').value = cfg.gameName ? `${cfg.gameName}#${cfg.tagLine ?? ''}` : '';
-  $('set-player-cur').textContent = DATA.player ? `(current: ${DATA.player})` : '';
   $('set-mini').checked = !!cfg.miniMode;
   $('set-ontop').checked = !!cfg.alwaysOnTop;
   $('set-tracker').value = 'https://arena.scrolab.com';
+}
+
+/* Region picker: "Auto-detect" (no override) plus every known region.
+   Rebuilt only when its options change; the selection is synced from the
+   server unless the user is interacting with it. */
+function renderRegionSelect() {
+  const sel = $('set-region');
+  const region = DATA.region;
+  if (!region) return;
+  const autoLabel = `Auto-detect${region.detected ? ` (${region.detected})` : ' (client not detected — NA)'}`;
+  const sig = autoLabel + '|' + region.options.join(',');
+  if (changed(sel, sig)) {
+    sel.innerHTML = `<option value="">${esc(autoLabel)}</option>` +
+      region.options.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+    delete sel.dataset.synced;
+  }
+  const saved = region.override ?? '';
+  if (document.activeElement !== sel && sel.dataset.synced !== saved) {
+    sel.value = saved;
+    sel.dataset.synced = saved;
+  }
+}
+
+function flash(msg, ms = 2500) {
+  $('settings-msg').textContent = msg;
+  if (ms) setTimeout(() => { if ($('settings-msg').textContent === msg) $('settings-msg').textContent = ''; }, ms);
 }
 
 $('btn-save').onclick = async () => {
@@ -285,22 +336,43 @@ $('btn-save').onclick = async () => {
   const body = {
     miniMode: $('set-mini').checked,
     alwaysOnTop: $('set-ontop').checked,
+    regionLabel: $('set-region').value || null,
   };
-  if (riotId && riotId.includes('#')) {
+  if (!riotId) {
+    // An empty field clears the override: back to the account logged into League.
+    body.gameName = null;
+    body.tagLine = null;
+  } else {
     const h = riotId.lastIndexOf('#');
+    if (h <= 0 || h === riotId.length - 1) {
+      flash('Riot ID must look like Name#TAG (or leave it empty to auto-detect).', 5000);
+      return;
+    }
     body.gameName = riotId.slice(0, h);
     body.tagLine = riotId.slice(h + 1);
   }
-  await j('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  $('settings-msg').textContent = 'Saved.';
-  setTimeout(() => ($('settings-msg').textContent = ''), 2000);
+  try {
+    await postJson('/api/config', body);
+    flash('Saved.');
+    await tick();
+  } catch (err) {
+    flash(`Not saved: ${err.message}`, 6000);
+  }
 };
 
 $('btn-fullscan').onclick = async () => {
-  $('settings-msg').textContent = 'Full rescan started — this can take several minutes…';
-  await j('/api/rescan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ full: true }) });
-  $('settings-msg').textContent = 'Rescan complete.';
-  await tick();
+  const btn = $('btn-fullscan');
+  btn.disabled = true;
+  flash('Full rescan started — this can take several minutes…', 0);
+  try {
+    const r = await postJson('/api/rescan', { full: true });
+    flash(r?.ok ? 'Rescan complete.' : `Rescan failed: ${r?.error ?? 'unknown error'}`, r?.ok ? 2500 : 8000);
+  } catch (err) {
+    flash(`Rescan failed: ${err.message}`, 8000);
+  } finally {
+    btn.disabled = false;
+    await tick();
+  }
 };
 
 $('btn-overlay-preview').onclick = async () => {
@@ -308,11 +380,7 @@ $('btn-overlay-preview').onclick = async () => {
   const btn = $('btn-overlay-preview');
   btn.disabled = true;
   try {
-    const res = await j('/api/overlay-preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: next }),
-    });
+    const res = await postJson('/api/overlay-preview', { enabled: next });
     if (res?.enabled !== next) throw new Error('unexpected response');
     overlayPreviewError = '';
     if (DATA) DATA.overlayPreview = next; // reconcile now; the next status tick confirms
@@ -331,20 +399,24 @@ function renderConn() {
   $('conn-text').textContent = DATA.lcuConnected ? `LCU · ${DATA.gameflowPhase}` : 'LCU offline';
 }
 
+let toastTimer = null;
+function showToast(html, kind, ms) {
+  const toast = $('toast');
+  toast.className = `toast ${kind}`.trim();
+  toast.innerHTML = html;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), ms);
+}
+
 function maybeToast() {
   const ev = DATA.lastEvent;
   if (!ev || ev.at === lastEventAt) return;
   lastEventAt = ev.at;
-  const toast = $('toast');
   if (ev.type === 'new-win') {
-    toast.className = 'toast';
-    toast.innerHTML = `🏆 First Arena win${ev.champion ? ` on <b>${esc(ev.champion)}</b>` : ''}! ${ev.wonCount}/${DATA.checklist?.total ?? ''}`;
+    showToast(`🏆 First Arena win${ev.champion ? ` on <b>${esc(ev.champion)}</b>` : ''}! ${ev.wonCount}/${DATA.checklist?.total ?? ''}`, '', 8000);
   } else {
-    toast.className = 'toast quiet';
-    toast.textContent = 'Checklist updated after your game.';
+    showToast('Checklist updated after your game.', 'quiet', 4000);
   }
-  toast.classList.remove('hidden');
-  setTimeout(() => toast.classList.add('hidden'), ev.type === 'new-win' ? 8000 : 4000);
 }
 
 async function tick() {
@@ -372,10 +444,19 @@ document.querySelectorAll('.fchip').forEach((b) =>
   }),
 );
 $('btn-rescan').onclick = async () => {
-  $('btn-rescan').textContent = 'Scanning…';
-  await j('/api/rescan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-  $('btn-rescan').textContent = 'Update scan';
-  await tick();
+  const btn = $('btn-rescan');
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
+  try {
+    const r = await postJson('/api/rescan', {});
+    if (!r?.ok) showToast(`Scan failed: ${esc(r?.error ?? 'unknown error')}`, 'error', 8000);
+  } catch (err) {
+    showToast(`Scan failed: ${esc(err.message)}`, 'error', 8000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Update scan';
+    await tick();
+  }
 };
 
 showView(currentView());

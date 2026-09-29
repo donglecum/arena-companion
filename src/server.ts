@@ -1,13 +1,16 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { parseLockfile, type Lockfile } from './lockfile.ts';
 import { LcuClient } from './lcu.ts';
 import { makeTrackerApi } from './trackerApi.ts';
-import { fetchChampions } from './ddragon.ts';
+import { fetchChampionsCached } from './ddragon.ts';
 import { aggregate, loadStore, saveStore, update, fullScan } from './scan.ts';
-import { regionByLabel } from './regions.ts';
+import { REGIONS, regionByLabel, regionFromClient } from './regions.ts';
+import { applyConfigPatch, loadConfig, normalizeConfigPatch, type CompanionConfig } from './config.ts';
+import { isJsonContentType, rejectRequest } from './httpGuard.ts';
+import { isEntryPoint } from './entry.ts';
 import { detectArenaGameEnd, computePostGameEvent, isStale, isArenaQueue } from './postgame.ts';
 import { LcuSubscriber, type LcuEvent } from './ws.ts';
 
@@ -23,24 +26,12 @@ const OWNED_REFRESH_MS = 24 * 3600_000;
 const CROWD_FAVORITES_PATH = '/lol-lobby-team-builder/champ-select/v1/crowd-favorite-champion-list';
 const CROWD_FAVORITES_REFRESH_MS = 15_000;
 
-interface CompanionConfig {
-  gameName?: string;
-  tagLine?: string;
-  regionLabel?: string;
-  miniMode?: boolean; // start champ-select view in mini mode
-  alwaysOnTop?: boolean;
-}
-
-const DEFAULT_CONFIG: CompanionConfig = {
-  regionLabel: 'NA',
-  miniMode: false,
-  alwaysOnTop: false,
-};
-
 const state: {
   lcuConnected: boolean;
   gameflowPhase: string;
   summoner: { gameName?: string; tagLine?: string; summonerLevel?: number } | null;
+  /** Region label reported by the League client; null until detected. */
+  detectedRegion: string | null;
   arenaGod: number | null;
   champSelect: { available: boolean; status?: number; championId?: number; championName?: string | null; isArena?: boolean; neededOwned?: { name: string; masteryPoints: number; masteryLevel: number }[] };
   prevPhase: string;
@@ -66,6 +57,7 @@ const state: {
   lcuConnected: false,
   gameflowPhase: '<unknown>',
   summoner: null,
+  detectedRegion: null,
   arenaGod: null,
   champSelect: { available: false },
   prevPhase: '',
@@ -78,7 +70,7 @@ const state: {
   scanning: false,
   lastScanFailedAt: null,
   lastEvent: null,
-  config: { ...DEFAULT_CONFIG },
+  config: loadConfig(null),
   queueId: null,
   queueGameMode: null,
   championIndex: new Map(),
@@ -87,9 +79,8 @@ const state: {
 };
 
 try {
-  const loaded = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-  delete loaded.autoShow; // discard the retired main-window popup preference
-  state.config = { ...DEFAULT_CONFIG, ...loaded };
+  // Unknown keys (e.g. the retired autoShow) and invalid values are dropped.
+  state.config = loadConfig(JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')));
 } catch {
   /* first run */
 }
@@ -134,6 +125,40 @@ function readQueue(session: unknown): LcuQueueInfo | null {
 function lcu(): LcuClient | null {
   const lockfile = readLockfile();
   return lockfile ? new LcuClient(lockfile) : null;
+}
+
+/** Riot ID to scan: the Settings override when set, otherwise the logged-in summoner. */
+function currentIdentity(): { gameName: string; tagLine: string } | null {
+  if (state.config.gameName && state.config.tagLine) {
+    return { gameName: state.config.gameName, tagLine: state.config.tagLine };
+  }
+  const { gameName, tagLine } = state.summoner ?? {};
+  return gameName && tagLine ? { gameName, tagLine } : null;
+}
+
+/** Region to scan: the Settings override, else the client's region, else NA. */
+function currentRegion() {
+  return regionByLabel(state.config.regionLabel ?? state.detectedRegion ?? 'NA');
+}
+
+let unknownRegionLogged = '';
+
+/** Ask the client which region it is logged into ({ region: "NA" | "EUW" | "LA1" | … }). */
+async function detectRegion(client: LcuClient) {
+  try {
+    const res = await client.getJson('/riotclient/region-locale');
+    const raw = res.status === 200 ? (res.json as Record<string, unknown> | null)?.region : undefined;
+    const region = regionFromClient(raw);
+    if (region) {
+      state.detectedRegion = region.label;
+      console.log(`[region] client reports ${String(raw)} → ${region.label}`);
+    } else if (raw !== undefined && JSON.stringify(raw) !== unknownRegionLogged) {
+      unknownRegionLogged = JSON.stringify(raw);
+      console.log(`[region] unrecognized client region ${unknownRegionLogged}; using NA`);
+    }
+  } catch {
+    /* retried on the next poll */
+  }
 }
 
 export interface CrowdFavorite {
@@ -286,7 +311,7 @@ function loadChampionIndex(): Promise<void> {
   if (championIndexLoading) return championIndexLoading;
   championIndexLoading = (async () => {
     try {
-      const { version, champions } = await fetchChampions();
+      const { version, champions } = await fetchChampionsCached();
       indexChampions(champions);
       state.ddragonVersion ??= version;
       console.log(`[champions] index loaded from ddragon (${champions.length})`);
@@ -325,10 +350,13 @@ function wonChampNames(): string[] {
 }
 
 async function pollLcu() {
+  // Before the first scan has produced a checklist, the startup scan handles identity.
+  const keyBefore = state.checklist ? playerKey() : null;
   const client = lcu();
   if (!client) {
     state.lcuConnected = false;
     state.gameflowPhase = '<no lockfile>';
+    state.detectedRegion = null; // the next client session may be another account
     return;
   }
   try {
@@ -353,6 +381,8 @@ async function pollLcu() {
   } catch {
     /* keep previous */
   }
+  if (!state.detectedRegion) await detectRegion(client);
+  if (keyBefore) rescanIfPlayerChanged(keyBefore, 'client account or region changed');
   try {
     const c = await client.getJson('/lol-challenges/v1/challenges/local-player');
     if (c.status === 200 && c.json && typeof c.json === 'object') {
@@ -399,15 +429,8 @@ async function pollLcu() {
     detectArenaGameEnd(state.prevPhase, state.gameflowPhase, state.queueId ?? 0, state.queueGameMode)
   ) {
     state.arenaQueueActive = false;
-    const before = { wonCount: state.checklist?.wonCount ?? 0, wonChampNames: wonChampNames() };
-    const lastPlayed = state.checklist?.recent?.[0]?.championName ?? null;
-    console.log('Arena game ended — running incremental rescan');
-    const r = await refreshChecklist(false);
-    if (r.ok && state.checklist) {
-      const after = { wonCount: state.checklist.wonCount, wonChampNames: wonChampNames() };
-      state.lastEvent = computePostGameEvent(before, after, lastPlayed);
-      console.log(`post-game event: ${JSON.stringify(state.lastEvent)}`);
-    }
+    // Not awaited: a rescan can take a while and polling must keep tracking phases.
+    void postGameRescan();
   }
   if (state.gameflowPhase === 'None' || state.gameflowPhase === 'Lobby') {
     state.arenaQueueActive = false;
@@ -473,23 +496,86 @@ async function pollLcu() {
   state.prevPhase = state.gameflowPhase;
 }
 
-async function refreshChecklist(full = false) {
-  const gameName = state.config.gameName ?? state.summoner?.gameName;
-  const tagLine = state.config.tagLine ?? state.summoner?.tagLine;
-  if (!gameName || !tagLine) return { ok: false, error: 'no player identity (LCU offline and no manual Riot ID set)' };
-  const region = regionByLabel(state.config.regionLabel ?? 'NA');
+async function postGameRescan() {
+  const before = { wonCount: state.checklist?.wonCount ?? 0, wonChampNames: wonChampNames() };
+  const lastPlayed = state.checklist?.recent?.[0]?.championName ?? null;
+  console.log('Arena game ended — running incremental rescan');
+  const r = await refreshChecklist(false);
+  if (r.ok && state.checklist) {
+    const after = { wonCount: state.checklist.wonCount, wonChampNames: wonChampNames() };
+    state.lastEvent = computePostGameEvent(before, after, lastPlayed);
+    console.log(`post-game event: ${JSON.stringify(state.lastEvent)}`);
+  }
+}
+
+let pollRunning = false;
+
+/** Interval entry point: skips a tick while the previous poll still waits on LCU. */
+async function pollTick() {
+  if (pollRunning) return;
+  pollRunning = true;
+  try {
+    await pollLcu();
+  } finally {
+    pollRunning = false;
+  }
+}
+
+type ScanResult = { ok: true } | { ok: false; error: string };
+let scanInFlight: { key: string | null; full: boolean; promise: Promise<ScanResult> } | null = null;
+
+/**
+ * One scan at a time. A request for the same player (and no fuller scan than
+ * the running one) shares the running scan's result — the startup scan,
+ * post-game rescan and UI buttons can all overlap. A request for a different
+ * player/region, or a full scan behind an incremental one, queues after it.
+ */
+function refreshChecklist(full = false): Promise<ScanResult> {
+  const key = playerKey();
+  if (scanInFlight && scanInFlight.key === key && (scanInFlight.full || !full)) return scanInFlight.promise;
+  const previous = scanInFlight?.promise ?? Promise.resolve();
+  const entry = {
+    key,
+    full,
+    promise: previous
+      .catch(() => undefined)
+      .then(() => runScan(full))
+      .finally(() => {
+        if (scanInFlight === entry) scanInFlight = null;
+      }),
+  };
+  scanInFlight = entry;
+  return entry.promise;
+}
+
+/** Drop the checklist and rescan when the player or region changed (Settings, account switch, region detection). */
+function rescanIfPlayerChanged(before: string | null, reason: string) {
+  const after = playerKey();
+  if (after === before) return;
+  console.log(`[scan] ${reason}: player ${before ?? 'none'} → ${after ?? 'none'}`);
+  state.checklist = null; // belongs to the previous player
+  if (after) void refreshChecklist();
+}
+
+async function runScan(full: boolean): Promise<ScanResult> {
+  const who = currentIdentity();
+  if (!who) return { ok: false, error: 'no player identity (LCU offline and no manual Riot ID set)' };
+  const { gameName, tagLine } = who;
+  const region = currentRegion();
   const api = makeTrackerApi(TRACKER);
   state.scanning = true;
   try {
     let store = loadStore(CACHE_DIR, region.platform, gameName, tagLine);
     store = store && !full ? await update(api, region, store) : await fullScan(api, { region, gameName, tagLine, depth: Number.POSITIVE_INFINITY });
     saveStore(CACHE_DIR, region.platform, gameName, tagLine, store);
-    const { version, champions } = await fetchChampions();
+    const { version, champions } = await fetchChampionsCached();
     state.ddragonVersion = version;
     indexChampions(champions);
     const masteries = await api.getMasteries(region.platform, store.account.puuid);
-    const manual = new Set(await api.getManualWins(`${region.platform}:${gameName.toLowerCase()}#${tagLine.toLowerCase()}`));
+    const manual = new Set(await api.getManualWins(playerKeyFor(region.platform, gameName, tagLine)));
     const result = aggregate(store, champions, masteries, manual);
+    // The player or region may have changed while this scan ran; a queued scan covers the new one.
+    if (playerKeyFor(region.platform, gameName, tagLine) !== playerKey()) return { ok: false, error: 'player changed during scan' };
     state.checklist = result;
     state.lastScanFailedAt = null;
     if (state.crowdFavorites.ids.length) setCrowdFavorites(state.crowdFavorites.ids, 'checklist refreshed', true);
@@ -505,12 +591,13 @@ async function refreshChecklist(full = false) {
   }
 }
 
-function playerKey(): string | null {
-  const gameName = state.config.gameName ?? state.summoner?.gameName;
-  const tagLine = state.config.tagLine ?? state.summoner?.tagLine;
-  if (!gameName || !tagLine) return null;
-  const platform = regionByLabel(state.config.regionLabel ?? 'NA').platform;
+function playerKeyFor(platform: string, gameName: string, tagLine: string): string {
   return `${platform}:${gameName.toLowerCase()}#${tagLine.toLowerCase()}`;
+}
+
+function playerKey(): string | null {
+  const who = currentIdentity();
+  return who ? playerKeyFor(currentRegion().platform, who.gameName, who.tagLine) : null;
 }
 
 const MIME: Record<string, string> = {
@@ -533,6 +620,20 @@ const server = http.createServer(async (req, res) => {
       req.on('data', (c) => (d += c));
       req.on('end', () => r(d));
     });
+  /** Parse a JSON request body; null when it is not JSON (the caller answers 400/415). */
+  const readJson = async (): Promise<{ value: unknown } | null> => {
+    if (!isJsonContentType(req.headers['content-type'])) return null;
+    try {
+      return { value: JSON.parse((await readBody()) || '{}') };
+    } catch {
+      return null;
+    }
+  };
+  const rejected = rejectRequest(req, PORT);
+  if (rejected) {
+    console.log(`[http] rejected ${req.method} ${url.pathname}: ${rejected}`);
+    return send(403, { error: rejected });
+  }
   try {
     // Static UI
     if (url.pathname === '/' || MIME[path.extname(url.pathname)]) {
@@ -540,7 +641,7 @@ const server = http.createServer(async (req, res) => {
       // Favicon assets live in ../assets; everything else is the UI bundle.
       const dir = rel === 'icon.svg' || rel === 'icon-32.png' ? path.join(__dirname, '..', 'assets') : UI_DIR;
       const file = path.join(dir, rel);
-      if (!file.startsWith(dir) || !fs.existsSync(file)) return send(404, { error: 'not found' });
+      if (!file.startsWith(dir + path.sep) || !fs.existsSync(file)) return send(404, { error: 'not found' });
       return send(200, fs.readFileSync(file), MIME[path.extname(file)] ?? 'application/octet-stream');
     }
     if (url.pathname === '/api/status') {
@@ -578,27 +679,38 @@ const server = http.createServer(async (req, res) => {
         recent: state.checklist?.recent?.slice(0, 10) ?? [],
         cards,
         config: state.config,
+        region: {
+          label: currentRegion().label,
+          detected: state.detectedRegion,
+          override: state.config.regionLabel ?? null,
+          options: REGIONS.map((r) => r.label),
+        },
       });
     }
     if (url.pathname === '/api/rescan' && req.method === 'POST') {
-      const full = Boolean(JSON.parse((await readBody()) || '{}').full);
+      const body = await readJson();
+      if (!body) return send(415, { error: 'expected a JSON body' });
+      const full = Boolean((body.value as { full?: unknown } | null)?.full);
       return send(200, await refreshChecklist(full));
     }
     if (url.pathname === '/api/config' && req.method === 'GET') {
       return send(200, state.config);
     }
     if (url.pathname === '/api/config' && req.method === 'POST') {
-      state.config = { ...state.config, ...JSON.parse((await readBody()) || '{}') };
+      const body = await readJson();
+      if (!body) return send(415, { error: 'expected a JSON body' });
+      const patch = normalizeConfigPatch(body.value);
+      if (!patch.ok) return send(400, { error: patch.error });
+      const before = playerKey();
+      state.config = applyConfigPatch(state.config, patch);
       saveConfig();
+      rescanIfPlayerChanged(before, 'settings changed');
       return send(200, { ok: true });
     }
     if (url.pathname === '/api/overlay-preview' && req.method === 'POST') {
-      let parsed: { enabled?: unknown };
-      try {
-        parsed = JSON.parse((await readBody()) || '{}');
-      } catch {
-        return send(400, { error: 'invalid JSON body' });
-      }
+      const body = await readJson();
+      if (!body) return send(400, { error: 'invalid JSON body' });
+      const parsed = body.value as { enabled?: unknown } | null;
       if (typeof parsed?.enabled !== 'boolean') return send(400, { error: 'enabled must be a boolean' });
       state.overlayPreview = parsed.enabled;
       return send(200, { enabled: state.overlayPreview });
@@ -632,21 +744,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-/**
- * True when this module is the process entry point (Node 22 has no import.meta.main).
- * Tests import the exported helpers without starting the server or LCU sockets.
- */
-function isEntryPoint(): boolean {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  try {
-    return fs.realpathSync(entry) === fs.realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-if (isEntryPoint()) {
+// Tests import the exported helpers without starting the server or LCU sockets.
+if (isEntryPoint(import.meta.url)) {
   const crowdFavoritesWs = new LcuSubscriber({
     resolveLockfile: readLockfile,
     reconnectDelayMs: 5000,
@@ -663,13 +762,15 @@ if (isEntryPoint()) {
     },
   });
 
-  server.listen(PORT, '0.0.0.0', () => {
+  // Loopback only: the API can change manual wins and config, so it must not
+  // be reachable from the LAN.
+  server.listen(PORT, '127.0.0.1', () => {
     console.log(`Arena Companion UI: http://localhost:${PORT}`);
-    setInterval(pollLcu, 3000);
+    setInterval(pollTick, 3000);
     crowdFavoritesWs.start();
     void loadChampionIndex();
-    // Wait for the first LCU poll so the player identity is known before scanning.
-    pollLcu()
+    // Wait for the first LCU poll so the player identity and region are known before scanning.
+    pollTick()
       .then(() => refreshChecklist())
       .then((r) => {
         if (!r.ok) console.log(`initial scan skipped: ${r.error}`);
