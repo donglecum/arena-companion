@@ -394,6 +394,8 @@ $('btn-overlay-preview').onclick = async () => {
 
 /* ---------- shared ---------- */
 function renderConn() {
+  const version = DATA.version ? `v${DATA.version}` : '';
+  if ($('app-version').textContent !== version) $('app-version').textContent = version;
   const pill = $('conn-pill');
   pill.classList.toggle('on', !!DATA.lcuConnected);
   $('conn-text').textContent = DATA.lcuConnected ? `LCU · ${DATA.gameflowPhase}` : 'LCU offline';

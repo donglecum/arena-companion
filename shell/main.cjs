@@ -15,6 +15,9 @@ const windows = process.platform === 'win32' ? require('./windows.cjs') : null;
 
 const APP_DIR = path.join(__dirname, '..');
 const ICON_PATH = path.join(APP_DIR, 'assets', 'icon.ico');
+// Read from package.json: app.getVersion() reports Electron's own version when
+// the shell is started unpackaged (`electron shell/main.cjs`).
+const APP_VERSION = require('../package.json').version;
 const PORT = process.env.ARENA_COMPANION_PORT ?? 8788;
 const BASE = `http://localhost:${PORT}`;
 const POLL_MS = 2000;
@@ -159,9 +162,11 @@ function createTray() {
     image = nativeImage.createFromBuffer(svg);
   }
   tray = new Tray(image);
-  tray.setToolTip('Arena Companion');
+  tray.setToolTip(`Arena Companion v${APP_VERSION}`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
+      { label: `Arena Companion v${APP_VERSION}`, enabled: false },
+      { type: 'separator' },
       { label: 'Show', click: () => { win.show(); win.focus(); } },
       { label: 'Always on top', type: 'checkbox', checked: false, click: (item) => win.setAlwaysOnTop(item.checked) },
       { type: 'separator' },
