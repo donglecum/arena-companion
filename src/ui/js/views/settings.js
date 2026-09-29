@@ -27,6 +27,7 @@ function layout() {
     </section>
     <section class="card settings-group"><h2>${icon('sparkles', 16)} Behavior</h2>
       ${sw('set-mini', 'Mini mode in champ select', 'The Champ Select view starts as a compact card.', 'minimize')}
+      ${sw('set-login', 'Start with Windows', 'Opens in the tray when you sign in, so Crowd Favorites is ready for champ select.', 'zap')}
       ${sw('set-ontop', 'Always on top', 'Keep the main window above other windows (also in the tray menu).', 'pin')}
     </section>
     <section class="card settings-group"><h2>${icon('crown', 16)} Overlay · Crowd Favorites</h2>
@@ -71,6 +72,7 @@ function bind() {
   });
   $('set-mini').addEventListener('change', (e) => saveConfig({ miniMode: e.target.checked }));
   $('set-ontop').addEventListener('change', (e) => saveConfig({ alwaysOnTop: e.target.checked }));
+  $('set-login').addEventListener('change', (e) => saveConfig({ launchAtLogin: e.target.checked }, e.target.checked ? 'Starts with Windows, in the tray.' : "Won't start with Windows."));
   $('set-fullscan').addEventListener('click', () => { flash('Full rescan started — this can take several minutes…'); void rescan($('set-fullscan'), true); });
   $('set-preview').addEventListener('click', () => togglePreview());
 }
@@ -121,6 +123,7 @@ export function renderSettings(st) {
   if (document.activeElement !== riot && riot.dataset.synced !== riotValue) { riot.value = riotValue; riot.dataset.synced = riotValue; }
   $('set-mini').checked = !!cfg.miniMode;
   $('set-ontop').checked = !!cfg.alwaysOnTop;
+  $('set-login').checked = cfg.launchAtLogin !== false;
   $('set-version').textContent = s.app?.version ? `v${s.app.version}${s.fixture ? ' · sample data' : ''}` : '–';
   $('set-data').textContent = s.app?.dataDir ?? '–';
   $('set-data').title = s.app?.dataDir ?? '';

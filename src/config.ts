@@ -8,11 +8,14 @@ export interface CompanionConfig {
   regionLabel?: string;
   miniMode?: boolean; // start champ-select view in mini mode
   alwaysOnTop?: boolean;
+  /** Installed builds launch at Windows sign-in, in the tray. */
+  launchAtLogin?: boolean;
 }
 
 export const DEFAULT_CONFIG: CompanionConfig = {
   miniMode: false,
   alwaysOnTop: false,
+  launchAtLogin: true,
 };
 
 const MAX_RIOT_ID_PART = 64;
@@ -57,7 +60,7 @@ export function normalizeConfigPatch(input: unknown, lenient = false): ConfigPat
     } else errors.push(`unknown region: ${String(region).slice(0, 20)}`);
   }
 
-  for (const key of ['miniMode', 'alwaysOnTop'] as const) {
+  for (const key of ['miniMode', 'alwaysOnTop', 'launchAtLogin'] as const) {
     if (!(key in src)) continue;
     if (typeof src[key] === 'boolean') set[key] = src[key];
     else errors.push(`${key} must be a boolean`);
