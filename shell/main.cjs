@@ -9,7 +9,8 @@ const path = require('node:path');
 const http = require('node:http');
 const { pathToFileURL } = require('node:url');
 const { DEFAULT_OFFSET, clampOffset, dockBounds } = require('./dock.cjs');
-const { startAutoUpdate } = require('./updater.cjs');
+const { startAutoUpdate, isBusyPhase } = require('./updater.cjs');
+const { dataEnv } = require('./paths.cjs');
 const windows = process.platform === 'win32' ? require('./windows.cjs') : null;
 
 const APP_DIR = path.join(__dirname, '..');
@@ -49,11 +50,16 @@ let overlayDragging = false;
 let overlaySettingBounds = false;
 let smokeErrorLogged = '';
 let statusFailures = 0;
+let lastGameflowPhase = null;
+
+let serverDataEnv = null;
 
 function startServer() {
+  // Explicit env overrides still win (e.g. a test cache dir).
+  serverDataEnv ??= dataEnv(app.getPath('userData'), APP_DIR);
   server = spawn(process.execPath.includes('electron') ? process.execPath : 'node', ['src/server.ts'], {
     cwd: APP_DIR,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ARENA_COMPANION_ELECTRON: '1' },
+    env: { ...serverDataEnv, ...process.env, ELECTRON_RUN_AS_NODE: '1', ARENA_COMPANION_ELECTRON: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`));
@@ -137,7 +143,8 @@ function createWindow() {
     }
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    // Only hand web links to the OS; other schemes can launch local handlers.
+    if (/^https:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
 }
@@ -431,6 +438,7 @@ async function pollStatus() {
     return;
   }
   statusFailures = 0;
+  lastGameflowPhase = typeof s.gameflowPhase === 'string' ? s.gameflowPhase : null;
   if (s.config?.alwaysOnTop != null && win.isAlwaysOnTop() !== !!s.config.alwaysOnTop) {
     win.setAlwaysOnTop(!!s.config.alwaysOnTop);
   }
@@ -453,7 +461,8 @@ async function pollStatus() {
 
 app.whenReady().then(async () => {
   app.setAppUserModelId('com.arena.companion');
-  startAutoUpdate(app);
+  // Busy while League is in champ select/game, or while the overlay is up.
+  startAutoUpdate(app, { isBusy: () => overlayShown || isBusyPhase(lastGameflowPhase) });
   if (SMOKE_STATUS) console.log(`smoke mode: reading status from ${SMOKE_STATUS}`);
   else startServer();
   const up = await waitForServer();

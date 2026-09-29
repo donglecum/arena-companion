@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import { isEntryPoint } from './entry.ts';
 import { makeTrackerApi } from './trackerApi.ts';
 import { fetchChampions } from './ddragon.ts';
 import { fullScan, update, aggregate, loadStore, saveStore } from './scan.ts';
@@ -40,7 +40,7 @@ export async function buildChecklist(opts: ChecklistOptions) {
 }
 
 // CLI entry: node src/checklist.ts "Scro#Scro" [NA]
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntryPoint(import.meta.url)) {
   const riotId = process.argv[2];
   const regionLabel = process.argv[3] ?? 'NA';
   if (!riotId || !riotId.includes('#')) {

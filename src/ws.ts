@@ -184,7 +184,7 @@ export class LcuSubscriber {
     const port = lockfile.port;
     const auth = Buffer.from(`riot:${lockfile.password}`).toString('base64');
     const key = crypto.randomBytes(16).toString('base64');
-    let buffer = Buffer.alloc(0);
+    let buffer: Buffer = Buffer.alloc(0);
     let upgraded = false;
     let finished = false;
 

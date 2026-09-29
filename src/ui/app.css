@@ -266,6 +266,9 @@ body.mini .card { padding: 8px; }
   max-width: 320px;
 }
 .toast.quiet { border-color: var(--border); color: var(--text-dim); font-weight: 500; }
+.toast.error { border-color: var(--danger); color: var(--danger); font-weight: 500; }
+.pop-msg { margin-top: 8px; font-size: 12px; }
+.pop-msg.error { color: var(--danger); }
 @keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* skeleton shimmer */
