@@ -7,8 +7,8 @@ test('collectMatchIds pages until depth and stops on short page', async () => {
     Array.from({ length: 100 }, (_, i) => `m${i}`),
     Array.from({ length: 40 }, (_, i) => `m${100 + i}`),
   ];
-  const calls = [];
-  const fetchIds = async (cluster, puuid, start, count) => {
+  const calls: { start: number; count: number }[] = [];
+  const fetchIds = async (_cluster: string, _puuid: string, start: number, count: number) => {
     calls.push({ start, count });
     return pages[start / 100] ?? [];
   };
@@ -21,7 +21,7 @@ test('collectMatchIds pages until depth and stops on short page', async () => {
 
 test('collectMatchIds respects finite depth', async () => {
   const page = Array.from({ length: 100 }, (_, i) => `m${i}`);
-  const fetchIds = async (_c, _p, start, count) => (start === 0 ? page.slice(0, count) : []);
+  const fetchIds = async (_c: string, _p: string, start: number, count: number) => (start === 0 ? page.slice(0, count) : []);
   const { ids, exhausted } = await collectMatchIds('americas', 'puuid-x', 60, fetchIds);
   assert.equal(ids.length, 60);
   assert.equal(exhausted, false);
