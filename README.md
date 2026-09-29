@@ -25,7 +25,7 @@ The app is a left navigation rail (collapsible), a top bar with the Ctrl+K searc
 - **Match History** — a year-long activity calendar (games per day, new first wins outlined), filters by champion, placement (1st, top 4, bottom 4, 8th, first wins) and date range, and games grouped by day with daily summaries.
 - **Champ Select** — the main window stays hidden or where you left it; open it from the tray when needed. During Arena champ select (`CHERRY`, queue 1700 or 1750), only a small always-on-top **Crowd Favorites** panel appears automatically, with each lobby favorite's portrait and ✓ won / ✗ still needed (or ? when win data is unavailable). It hides after champ select and while the game runs. On Windows it docks outside the League client's right edge with a 9 DIP gap, falling inside when there is no room; it follows moves/resizes across monitors. Drag vertically to save its offset from the client top; if the client window is unavailable, the panel uses its last free position. The Champ Select view shows the current pick (and whether a win on it counts), the crowd favorites, and needed champions you own; **Mini mode** turns it into a compact card.
 - **Post-game** — on leaving an Arena match, runs an incremental rescan; a first win on a new champion gets a celebration card in the app and a Windows notification (the main window usually stays hidden).
-- **Settings** — Riot ID override (leave empty to follow the account logged into League), region (auto-detected from the client, or pinned), mini-mode default and always-on-top switches, full rescan, version and data folder, and a **Crowd Favorites panel** button to show a clearly labeled sample preview for positioning. With the client visible, drag the preview up/down to set its relative height, then click **Done**; without the client, dragging sets the fallback position. A real Arena champ select takes over while active; if the preview remains enabled, it resumes afterward. Preview mode is not saved and starts off after an app restart.
+- **Settings** — Riot ID override (leave empty to follow the account logged into League), region (auto-detected from the client, or pinned), **Start with Windows** (on by default: installed copies launch at sign-in straight into the tray, so the Crowd Favorites panel is ready for champ select), mini-mode default and always-on-top switches, full rescan, version and data folder, and a **Crowd Favorites panel** button to show a clearly labeled sample preview for positioning. With the client visible, drag the preview up/down to set its relative height, then click **Done**; without the client, dragging sets the fallback position. A real Arena champ select takes over while active; if the preview remains enabled, it resumes afterward. Preview mode is not saved and starts off after an app restart.
 
 ## Keyboard
 
@@ -72,6 +72,7 @@ Black and electric blue. Tokens are CSS custom properties at the top of `src/ui/
 ## Running on WINDOWSPC
 
 - Install dir: `C:\Users\micha\Apps\arena-companion`
+- Installed copies start with Windows through a login item (`--hidden`, tray only) unless **Start with Windows** is off; dev and portable runs never register one.
 - Scheduled task **ArenaCompanion** runs the Electron app interactively at logon; `schtasks /run /tn ArenaCompanion` starts it immediately while signed in.
 - Only one copy runs: starting it again (shortcut, scheduled task, installer) brings the open window forward. Updates are re-checked every 4 hours.
 - Data: the Electron shell keeps `companion-config.json` and the match `cache/` in the per-user app data folder (`%APPDATA%\<app name>`), which survives updates; older copies in the app folder are copied there once. Running the backend alone (`npm start`) still uses the working directory, or `ARENA_COMPANION_CONFIG` / `ARENA_CACHE`.
@@ -85,7 +86,7 @@ Black and electric blue. Tokens are CSS custom properties at the top of `src/ui/
 
 `npm run typecheck` — `tsc` over `src/` and `tests/` (no output; Node runs the `.ts` files directly). CI runs it and `npm test` on every push and pull request.
 
-`npm test` — unit tests for request gating, config validation, region detection, the data-folder migration, update-restart deferral, the champion cache (with classes and titles), lockfile parsing/redaction, scan/manual-win and placement aggregation, retrying match batches that failed on an earlier scan (including empty and invalid-placement stores), favorite payload/status resolution, client-relative dock/clamp geometry, both Arena queues, and post-game transitions.
+`npm test` — unit tests for request gating, config validation, the Start-with-Windows login item, region detection, the data-folder migration, update-restart deferral, the champion cache (with classes and titles), lockfile parsing/redaction, scan/manual-win and placement aggregation, retrying match batches that failed on an earlier scan (including empty and invalid-placement stores), favorite payload/status resolution, client-relative dock/clamp geometry, both Arena queues, and post-game transitions.
 
 ## Capability matrix (WINDOWSPC live check 2026-09-27)
 

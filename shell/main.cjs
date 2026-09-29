@@ -11,6 +11,7 @@ const { pathToFileURL } = require('node:url');
 const { DEFAULT_OFFSET, clampOffset, dockBounds } = require('./dock.cjs');
 const { startAutoUpdate, isBusyPhase } = require('./updater.cjs');
 const { dataEnv } = require('./paths.cjs');
+const { syncLoginItem, launchedHidden } = require('./startup.cjs');
 const windows = process.platform === 'win32' ? require('./windows.cjs') : null;
 
 const APP_DIR = path.join(__dirname, '..');
@@ -53,6 +54,7 @@ let smokeErrorLogged = '';
 let statusFailures = 0;
 let lastGameflowPhase = null;
 let lastNotifiedEvent = null;
+let lastLoginItem = null;
 const shellStartedAt = Date.now();
 
 let serverDataEnv = null;
@@ -508,6 +510,14 @@ async function pollStatus() {
   statusFailures = 0;
   notifyPostGame(s.lastEvent);
   lastGameflowPhase = typeof s.gameflowPhase === 'string' ? s.gameflowPhase : null;
+  if (typeof s.config?.launchAtLogin === 'boolean' && s.config.launchAtLogin !== lastLoginItem) {
+    lastLoginItem = s.config.launchAtLogin;
+    try {
+      if (syncLoginItem(app, lastLoginItem)) console.log(`start with Windows ${lastLoginItem ? 'on' : 'off'}`);
+    } catch (err) {
+      console.error(`could not update the Windows login item: ${err.message}`);
+    }
+  }
   if (s.config?.alwaysOnTop != null) {
     if (win.isAlwaysOnTop() !== !!s.config.alwaysOnTop) win.setAlwaysOnTop(!!s.config.alwaysOnTop);
     if (trayOnTopItem) trayOnTopItem.checked = !!s.config.alwaysOnTop;
@@ -534,7 +544,9 @@ async function pollStatus() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', showMainWindow);
+  // Opening the app again brings the window forward, unless that launch was the
+  // sign-in one (e.g. a second copy racing the first at login).
+  app.on('second-instance', (_event, argv) => { if (!launchedHidden(argv)) showMainWindow(); });
   app.whenReady().then(start);
 }
 

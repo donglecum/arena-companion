@@ -20,6 +20,7 @@ test('normalizeConfigPatch rejects values that would break the server', () => {
   assert.equal(normalizeConfigPatch({ gameName: 'Scro' }).ok, false); // half a Riot ID
   assert.equal(normalizeConfigPatch({ regionLabel: 'MARS' }).ok, false);
   assert.equal(normalizeConfigPatch({ alwaysOnTop: 'yes' }).ok, false);
+  assert.equal(normalizeConfigPatch({ launchAtLogin: 1 }).ok, false);
   assert.equal(normalizeConfigPatch([]).ok, false);
   assert.equal(normalizeConfigPatch('x').ok, false);
 });
@@ -35,8 +36,10 @@ test('loadConfig drops bad saved values instead of failing', () => {
   assert.deepEqual(loadConfig({ gameName: 7, tagLine: 'x', alwaysOnTop: true, autoShow: true }), {
     miniMode: false,
     alwaysOnTop: true,
+    launchAtLogin: true,
   });
-  assert.deepEqual(loadConfig(null), { miniMode: false, alwaysOnTop: false });
+  assert.deepEqual(loadConfig(null), { miniMode: false, alwaysOnTop: false, launchAtLogin: true });
+  assert.equal(loadConfig({ launchAtLogin: false }).launchAtLogin, false);
 });
 
 test('loadConfig treats a saved NA as the old implicit default and auto-detects', () => {
