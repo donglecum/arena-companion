@@ -73,7 +73,7 @@ Black and electric blue. Tokens are CSS custom properties at the top of `src/ui/
 
 - Install dir: `C:\Users\micha\Apps\arena-companion`
 - Start at sign-in: installed copies register a Windows login item (`--hidden`, tray only) unless **Start with Windows** is off; check it under Task Manager › Startup apps. Dev and portable runs never register one. The old **ArenaCompanion** scheduled task is no longer needed — delete it (`schtasks /delete /tn ArenaCompanion /f`) so only one copy starts at sign-in.
-- Only one copy runs: starting it again (shortcut, installer) brings the open window forward. Updates are checked at start and every 4 hours.
+- Only one copy runs: starting it again (shortcut, installer) brings the open window forward. Updates are checked at start and every 4 hours; while one downloads or waits to install, the sidebar shows it ("Downloading v…", "Update v… ready"), and Settings › About shows the installed version and update state.
 - The main window reopens at the size and position it was left (saved in `main-window.json` in the app data folder); a window left on a disconnected monitor comes back on screen.
 - Data: the Electron shell keeps `companion-config.json` and the match `cache/` in the per-user app data folder (`%APPDATA%\<app name>`), which survives updates; older copies in the app folder are copied there once. Running the backend alone (`npm start`) still uses the working directory, or `ARENA_COMPANION_CONFIG` / `ARENA_CACHE`.
 - Runtime logs: `logs\arena-companion.log` / `.err.log`. Favorite IDs and resolved statuses, WebSocket connection, overlay shown/hidden, and safe errors are recorded there; no lockfile password or auth header.

@@ -8,6 +8,7 @@ import { makeTrackerApi } from './trackerApi.ts';
 import { fetchChampionsCached } from './ddragon.ts';
 import { aggregate, loadStore, saveStore, update, fullScan, writeFileAtomic, matchList, type MatchRow } from './scan.ts';
 import { computeInsights } from './insights.ts';
+import { normalizeUpdateStatus, type UpdateStatus } from './updateStatus.ts';
 import { buildFixture, fixtureArt } from './fixture.ts';
 import { REGIONS, regionByLabel, regionFromClient } from './regions.ts';
 import { applyConfigPatch, loadConfig, normalizeConfigPatch, type CompanionConfig } from './config.ts';
@@ -76,6 +77,8 @@ const state: {
   crowdFavorites: { ids: number[]; lastGetAt: number; lastEventAt: number; getUnavailable: boolean };
   /** Process-memory only: transient Crowd Favorites preview toggle; never persisted or loaded from config. */
   overlayPreview: boolean;
+  /** Auto-update progress reported by the Electron shell; null when nothing is pending. */
+  update: UpdateStatus | null;
 } = {
   lcuConnected: false,
   gameflowPhase: '<unknown>',
@@ -102,6 +105,7 @@ const state: {
   championIndex: new Map(),
   crowdFavorites: { ids: [], lastGetAt: 0, lastEventAt: 0, getUnavailable: false },
   overlayPreview: false,
+  update: null,
 };
 
 try {
@@ -781,6 +785,7 @@ const server = http.createServer(async (req, res) => {
         crowdFavorites,
         crowdFavoritesActive: crowdFavoritesActiveNow,
         overlayPreview: state.overlayPreview,
+        update: state.update,
         lastSync: state.lastSync,
         stale: isStale(state.lastSync, Date.now()),
         scanning: state.scanning,
@@ -824,6 +829,13 @@ const server = http.createServer(async (req, res) => {
       state.config = applyConfigPatch(state.config, patch);
       saveConfig();
       rescanIfPlayerChanged(before, 'settings changed');
+      return send(200, { ok: true });
+    }
+    if (url.pathname === '/api/update-status' && req.method === 'POST') {
+      const body = await readJson();
+      const status = body ? normalizeUpdateStatus(body.value) : undefined;
+      if (status === undefined) return send(400, { error: 'invalid update status' });
+      state.update = status;
       return send(200, { ok: true });
     }
     if (url.pathname === '/api/overlay-preview' && req.method === 'POST') {

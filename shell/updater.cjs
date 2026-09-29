@@ -23,7 +23,38 @@ function shouldAutoUpdate(isPackaged, env = process.env) {
 // The app runs all day from logon, so keep checking instead of only at launch.
 const RECHECK_MS = 4 * 3600_000;
 
-function startAutoUpdate(app, { log = console.log, isBusy = () => false, retryMs = 30_000, recheckMs = RECHECK_MS } = {}) {
+// Turns electron-updater events into the status the UI shows ({ state, version,
+// percent }, or null when nothing is pending). Progress is reported in 5% steps.
+function wireUpdateStatus(autoUpdater, onStatus) {
+  let version = null;
+  let lastPercent = -1;
+  let ready = false;
+  autoUpdater.on('update-available', (info) => {
+    version = info?.version ?? null;
+    lastPercent = 0;
+    if (version) onStatus({ state: 'downloading', version, percent: 0 });
+  });
+  autoUpdater.on('download-progress', (progress) => {
+    const percent = Math.floor(Number(progress?.percent) || 0);
+    if (!version || percent < lastPercent + 5) return;
+    lastPercent = percent;
+    onStatus({ state: 'downloading', version, percent });
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    ready = true;
+    version = info?.version ?? version;
+    if (version) onStatus({ state: 'ready', version });
+  });
+  autoUpdater.on('error', () => {
+    // A failed download clears the note; a downloaded update still installs on quit.
+    if (!ready) onStatus(null);
+  });
+  return {
+    restarting: () => { if (version) onStatus({ state: 'restarting', version }); },
+  };
+}
+
+function startAutoUpdate(app, { log = console.log, isBusy = () => false, retryMs = 30_000, recheckMs = RECHECK_MS, onStatus = () => {} } = {}) {
   if (!shouldAutoUpdate(app.isPackaged)) return;
   let autoUpdater;
   try {
@@ -35,6 +66,7 @@ function startAutoUpdate(app, { log = console.log, isBusy = () => false, retryMs
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   let installing = false; // quitAndInstall re-entrancy guard (once per session)
+  const status = wireUpdateStatus(autoUpdater, onStatus);
   autoUpdater.on('update-available', (info) => log(`[updater] v${info.version} available — downloading`));
   autoUpdater.on('update-not-available', () => log('[updater] up to date'));
   autoUpdater.on('error', (err) => log(`[updater] ${String(err).slice(0, 200)}`));
@@ -47,6 +79,7 @@ function startAutoUpdate(app, { log = console.log, isBusy = () => false, retryMs
       return;
     }
     log('[updater] restarting to install');
+    status.restarting();
     try {
       autoUpdater.quitAndInstall(true, true); // silent + relaunch
     } catch (err) {
@@ -69,4 +102,4 @@ function startAutoUpdate(app, { log = console.log, isBusy = () => false, retryMs
   setInterval(check, recheckMs).unref?.();
 }
 
-module.exports = { shouldAutoUpdate, isBusyPhase, startAutoUpdate };
+module.exports = { shouldAutoUpdate, isBusyPhase, startAutoUpdate, wireUpdateStatus };
