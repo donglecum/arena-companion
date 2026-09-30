@@ -13,6 +13,7 @@ const { startAutoUpdate, isBusyPhase } = require('./updater.cjs');
 const { dataEnv } = require('./paths.cjs');
 const { syncLoginItem, launchedHidden } = require('./startup.cjs');
 const { restoreBounds } = require('./windowState.cjs');
+const { postGameNotification } = require('./notify.cjs');
 const windows = process.platform === 'win32' ? require('./windows.cjs') : null;
 
 const APP_DIR = path.join(__dirname, '..');
@@ -525,14 +526,15 @@ async function fitOverlayHeight() {
 }
 
 // The main window usually stays hidden, so a first win also gets a Windows
-// notification (the in-window toast alone was easy to miss).
+// notification (the in-window celebration waits until the window is opened;
+// the app never raises itself after a game).
 function notifyPostGame(event) {
   if (!event || event.type !== 'new-win' || typeof event.at !== 'string' || event.at === lastNotifiedEvent) return;
   lastNotifiedEvent = event.at;
   if (Date.parse(event.at) < shellStartedAt || !Notification.isSupported()) return;
-  const champion = typeof event.champion === 'string' && event.champion ? event.champion : 'a new champion';
-  const count = Number.isFinite(event.wonCount) ? ` · ${event.wonCount} champions won` : '';
-  const notification = new Notification({ title: 'First Arena win!', body: `${champion}${count}`, icon: ICON_PATH });
+  const text = postGameNotification(event);
+  if (!text) return;
+  const notification = new Notification({ ...text, icon: ICON_PATH });
   notification.on('click', showMainWindow);
   notification.show();
 }

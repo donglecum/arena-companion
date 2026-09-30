@@ -5,7 +5,10 @@
 <title>Crowd Favorites</title>
 <style>
   /* Black glass + electric blue, matching the main app. Sizing and the element
-     structure are a contract with the shell (fitOverlayHeight, drag, click-through). */
+     structure are a contract with the shell (fitOverlayHeight measures #panel,
+     the whole panel is the drag handle, click-through follows the pointer).
+     The panel answers "do I still need any of these?": needed rows are large,
+     bright and coral-edged; won rows shrink and dim; unknown stays neutral. */
   @font-face { font-family: 'Inter'; font-weight: 100 900; src: url('/fonts/inter-latin-wght.woff2') format('woff2'); }
   html, body {
     margin: 0;
@@ -22,68 +25,93 @@
   #panel {
     -webkit-app-region: drag;
     box-sizing: border-box;
-    padding: 8px 9px 7px;
+    padding: 8px 7px 7px;
     background:
-      radial-gradient(120% 90% at 0% 0%, rgba(29, 78, 216, .32), transparent 60%),
-      rgba(8, 11, 17, .94);
-    border: 1px solid rgba(96, 165, 250, .45);
+      radial-gradient(120% 90% at 0% 0%, rgba(29, 78, 216, .26), transparent 60%),
+      rgba(8, 11, 17, .95);
+    border: 1px solid rgba(96, 165, 250, .42);
     border-radius: 12px;
-    box-shadow: inset 0 0 0 1px rgba(56, 189, 248, .08), inset 0 1px 0 rgba(255, 255, 255, .05);
+    box-shadow: inset 0 0 0 1px rgba(56, 189, 248, .07), inset 0 1px 0 rgba(255, 255, 255, .05);
   }
   #panel.hidden { display: none; }
   #head {
     display: flex;
     align-items: center;
     gap: 7px;
-    padding: 0 1px 6px;
-    border-bottom: 1px solid rgba(96, 165, 250, .18);
+    padding: 0 2px 7px 3px;
+    border-bottom: 1px solid rgba(96, 165, 250, .16);
   }
   #head .dot { width: 7px; height: 7px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 8px #38bdf8; flex: none; }
   #title {
     flex: 1;
     min-width: 0;
     font-weight: 700;
-    font-size: 11px;
-    letter-spacing: .07em;
+    font-size: 10px;
+    letter-spacing: .06em;
     text-transform: uppercase;
     color: #93c5fd;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* The answer: how many are still needed (or that none are). */
   #summary {
-    color: #e6edf7; font-weight: 700; font-variant-numeric: tabular-nums;
-    background: rgba(59, 130, 246, .18); border: 1px solid rgba(96, 165, 250, .3); border-radius: 999px; padding: 0 7px;
-  }
-  #list { list-style: none; margin: 5px 0 0; padding: 0; }
-  #list li { display: flex; align-items: center; gap: 8px; padding: 3px 2px; border-radius: 7px; }
-  #list img {
-    width: 30px;
-    height: 30px;
     flex: none;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    font-variant-numeric: tabular-nums;
+  }
+  #summary:empty { display: none; }
+  #summary.need { color: #fecaca; background: rgba(248, 113, 113, .2); box-shadow: inset 0 0 0 1px rgba(248, 113, 113, .45); }
+  #summary.won { color: #5eead4; background: rgba(45, 212, 191, .12); box-shadow: inset 0 0 0 1px rgba(45, 212, 191, .35); }
+  #summary.unknown { color: #aab4c4; background: rgba(148, 163, 184, .12); }
+  #summary.preview { color: #fbbf24; background: rgba(251, 191, 36, .1); box-shadow: inset 0 0 0 1px rgba(251, 191, 36, .35); }
+  #list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+  #list li { box-sizing: border-box; display: flex; align-items: center; gap: 9px; min-height: 30px; padding: 3px 6px 3px 8px; border-radius: 8px; }
+  /* Portrait over colored initials, so a missing image never leaves a hole. */
+  .pic {
+    position: relative;
+    flex: none;
+    overflow: hidden;
     border-radius: 7px;
-    object-fit: cover;
-    background: #161b26;
-    box-shadow: 0 0 0 1px rgba(148, 163, 184, .15);
+    background: linear-gradient(135deg, hsl(var(--h, 215) 45% 28%), hsl(calc(var(--h, 215) + 50) 50% 13%));
   }
-  #list .name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #list .mark {
-    width: 20px; height: 20px; flex: none; display: grid; place-items: center;
-    border-radius: 50%; font-weight: 800; font-size: 12px;
+  .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .ini { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 800; color: rgba(255, 255, 255, .62); }
+  .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mark { flex: none; display: inline-flex; align-items: center; justify-content: center; }
+  .mark svg { display: block; }
+
+  /* Needed: the reason the panel exists. */
+  li.needed { background: linear-gradient(90deg, rgba(248, 113, 113, .17), rgba(248, 113, 113, .03) 78%); box-shadow: inset 3px 0 0 #f87171; }
+  li.needed .pic { width: 34px; height: 34px; box-shadow: 0 0 0 1.5px rgba(248, 113, 113, .6); }
+  li.needed .ini { font-size: 12px; }
+  li.needed .name { font-size: 13px; font-weight: 750; color: #fff; }
+  li.needed .mark {
+    height: 19px;
+    padding: 0 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: #fee2e2;
+    background: rgba(248, 113, 113, .3);
   }
-  li.won .mark { color: #2dd4bf; background: rgba(45, 212, 191, .14); }
-  li.won img { box-shadow: 0 0 0 1.5px rgba(45, 212, 191, .7); }
-  li.needed .mark { color: #f87171; background: rgba(248, 113, 113, .14); }
-  li.needed .name { color: #fff; }
-  li.unknown .mark { color: #8b97ab; background: rgba(148, 163, 184, .12); }
-  #foot {
-    margin-top: 5px;
-    padding-top: 5px;
-    border-top: 1px solid rgba(148, 163, 184, .1);
-    color: #8b97ab;
-    font-size: 10.5px;
-  }
-  #foot.hidden { display: none; }
+  /* Won: done — still listed, but out of the way. */
+  li.won .pic { width: 24px; height: 24px; margin: 0 5px; filter: saturate(.35) brightness(.6); }
+  li.won .ini { font-size: 9px; }
+  li.won .name { font-size: 11.5px; font-weight: 600; color: #8591a6; }
+  li.won .mark { width: 18px; height: 18px; color: #2dd4bf; }
+  /* Unknown (no win data): neutral, and clearly neither. */
+  li.unknown .pic { width: 28px; height: 28px; margin: 0 3px; filter: saturate(.7); }
+  li.unknown .ini { font-size: 10px; }
+  li.unknown .name { font-size: 12px; font-weight: 600; color: #c4ccd8; }
+  li.unknown .mark { width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 800; color: #aab4c4; background: rgba(148, 163, 184, .16); }
 </style>
 </head>
 <body>
@@ -94,113 +122,93 @@
     <span id="summary"></span>
   </div>
   <ul id="list"></ul>
-  <div id="foot" class="hidden"></div>
 </div>
+<!-- The view model (row states, summary, preview samples) is shared with the main window. -->
+<script src="js/crowd.js"></script>
 <script>
 (function () {
   'use strict';
 
+  var model = window.ArenaCrowd;
   var panelEl = document.getElementById('panel');
   var titleEl = document.getElementById('title');
   var listEl = document.getElementById('list');
   var summaryEl = document.getElementById('summary');
-  var footEl = document.getElementById('foot');
   var rows = new Map();
-  var version = null;
   var lastPush = 0;
 
-  function portraitUrl(image) {
-    if (!version || typeof image !== 'string' || !image) return '';
-    return 'https://ddragon.leagueoflegends.com/cdn/' +
-      encodeURIComponent(version) + '/img/champion/' + encodeURIComponent(image);
-  }
+  var CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+  var MARK = { needed: 'Need', won: CHECK, unknown: '?' };
 
-  // Sample cards for the Settings position preview (never real LCU data): one
-  // card per win state (won/needed/unknown) and no portrait.
-  var SAMPLE_CARDS = [
-    { id: -1, name: 'Sample champion · won', image: '', won: true },
-    { id: -2, name: 'Sample champion · needed', image: '', won: false },
-    { id: -3, name: 'Sample champion · unknown', image: '', won: null },
-  ];
+  function hue(text) {
+    var h = 2166136261;
+    for (var i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+    return (h >>> 0) % 360;
+  }
 
   function makeRow() {
     var li = document.createElement('li');
+    var pic = document.createElement('span');
+    pic.className = 'pic';
+    var ini = document.createElement('span');
+    ini.className = 'ini';
     var img = document.createElement('img');
     img.alt = '';
     img.draggable = false;
     img.addEventListener('error', function () { img.style.visibility = 'hidden'; });
+    pic.appendChild(ini);
+    pic.appendChild(img);
     var name = document.createElement('span');
     name.className = 'name';
     var mark = document.createElement('span');
     mark.className = 'mark';
-    li.appendChild(img);
+    li.appendChild(pic);
     li.appendChild(name);
     li.appendChild(mark);
-    return { li: li, img: img, name: name, mark: mark, src: null, won: null, text: null };
-  }
-
-  function setRowStatus(row, won, name) {
-    var state = won === true ? 'won' : won === false ? 'needed' : 'unknown';
-    row.li.className = state;
-    row.li.setAttribute('aria-label', name + ' — ' + (won === true ? 'won' : won === false ? 'needed' : 'unknown'));
-    row.mark.textContent = won === true ? '✓' : won === false ? '✗' : '?';
+    return { li: li, pic: pic, ini: ini, img: img, name: name, mark: mark, src: null, text: null, state: null, label: null };
   }
 
   // Diffed render: only touches the DOM/attributes that actually changed so
   // portraits are not reloaded on every poll.
   function applyStatus(status) {
     if (!status || typeof status !== 'object') return;
-    var ver = typeof status.ddragonVersion === 'string' && status.ddragonVersion ? status.ddragonVersion : null;
-    version = ver;
-
-    var favorites = Array.isArray(status.crowdFavorites) ? status.crowdFavorites : [];
-    // Position preview from Settings, shown only outside a real Arena champ
-    // select — a real champ select supersedes it even with an empty list.
-    var realActive = status.crowdFavoritesActive === true;
-    var preview = status.overlayPreview === true && !realActive;
-    if (preview) favorites = SAMPLE_CARDS;
-    var active = preview || (realActive && favorites.length > 0);
-    panelEl.classList.toggle('hidden', !active);
-    var label = preview ? 'Crowd Favorites · preview' : 'Crowd Favorites';
-    if (titleEl.textContent !== label) titleEl.textContent = label;
-    document.title = label + ' (' + favorites.length + ')';
-    if (!active) return;
+    var view = model.crowdModel(status);
+    panelEl.classList.toggle('hidden', !view.active);
+    if (titleEl.textContent !== view.heading) titleEl.textContent = view.heading;
+    document.title = view.title + ' (' + view.rows.length + ')';
+    if (!view.active) return;
 
     var seen = new Set();
-    var won = 0;
-    var lost = 0;
-    var unknown = 0;
-
-    favorites.forEach(function (fav, index) {
-      var key = fav && Number.isFinite(fav.id) ? 'id:' + fav.id : 'i:' + index;
-      seen.add(key);
-      var row = rows.get(key);
+    view.rows.forEach(function (r, index) {
+      seen.add(r.key);
+      var row = rows.get(r.key);
       if (!row) {
         row = makeRow();
-        rows.set(key, row);
+        rows.set(r.key, row);
       }
-      var name = fav && typeof fav.name === 'string' ? fav.name : '';
-      var src = portraitUrl(fav && typeof fav.image === 'string' ? fav.image : '');
-      if (row.src !== src) {
-        row.src = src;
-        if (src) {
+      if (row.src !== r.portrait) {
+        row.src = r.portrait;
+        if (r.portrait) {
           row.img.style.visibility = '';
-          row.img.src = src;
+          row.img.src = r.portrait;
         } else {
           row.img.removeAttribute('src');
           row.img.style.visibility = 'hidden';
         }
       }
-      if (row.name.textContent !== name) row.name.textContent = name;
-      var state = fav && fav.won === true ? true : fav && fav.won === false ? false : null;
-      if (row.won !== state || row.text !== name) {
-        row.won = state;
-        row.text = name;
-        setRowStatus(row, state, name);
+      if (row.text !== r.name) {
+        row.text = r.name;
+        row.name.textContent = r.name;
+        row.ini.textContent = r.initials;
+        row.pic.style.setProperty('--h', String(hue(r.name)));
       }
-      if (state === true) won++;
-      else if (state === false) lost++;
-      else unknown++;
+      if (row.state !== r.state || row.label !== r.label) {
+        row.state = r.state;
+        row.label = r.label;
+        row.li.className = r.state;
+        row.li.setAttribute('aria-label', r.label);
+        row.mark.innerHTML = MARK[r.state];
+      }
       if (listEl.children[index] !== row.li) listEl.insertBefore(row.li, listEl.children[index] || null);
     });
 
@@ -210,13 +218,8 @@
       rows.delete(key);
     });
 
-    var summary = won + '/' + favorites.length;
-    if (summaryEl.textContent !== summary) summaryEl.textContent = summary;
-    var parts = [won + ' won', lost + ' needed'];
-    if (unknown) parts.push(unknown + ' unknown');
-    var footer = parts.join(' · ');
-    if (footEl.textContent !== footer) footEl.textContent = footer;
-    if (footEl.classList.contains('hidden')) footEl.classList.remove('hidden');
+    if (summaryEl.textContent !== view.summary) summaryEl.textContent = view.summary;
+    if (summaryEl.className !== view.tone) summaryEl.className = view.tone;
   }
 
   // Status is pushed by the Electron shell (double-encoded JSON, parsed here).

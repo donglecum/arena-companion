@@ -17,16 +17,17 @@
       <img src="/icon.svg" alt="" class="brand-logo" width="30" height="30">
       <span class="brand-text">Arena <b>Companion</b></span>
     </div>
-    <nav class="rail-nav">
-      <a class="nav-item" href="#/dashboard" data-view="dashboard" title="Dashboard (1)"><span data-icon="dashboard"></span><span class="nav-label">Dashboard</span></a>
-      <a class="nav-item" href="#/champions" data-view="champions" title="Champions (2)"><span data-icon="swords"></span><span class="nav-label">Champions</span></a>
-      <a class="nav-item" href="#/history" data-view="history" title="Match History (3)"><span data-icon="history"></span><span class="nav-label">Match History</span></a>
-      <a class="nav-item" href="#/champselect" data-view="champselect" title="Champ Select (4)"><span data-icon="target"></span><span class="nav-label">Champ Select</span></a>
-      <a class="nav-item" href="#/settings" data-view="settings" title="Settings (5)"><span data-icon="settings"></span><span class="nav-label">Settings</span></a>
+    <nav class="rail-nav" aria-label="Views">
+      <a class="nav-item" href="#/dashboard" data-view="dashboard" title="Overview (1)"><span data-icon="dashboard"></span><span class="nav-label">Overview</span></a>
+      <a class="nav-item" href="#/remaining" data-view="remaining" title="Remaining (2)"><span data-icon="checklist"></span><span class="nav-label">Remaining</span><span id="nav-remaining" class="nav-count num"></span></a>
+      <a class="nav-item" href="#/champions" data-view="champions" title="Champions (3)"><span data-icon="swords"></span><span class="nav-label">Champions</span></a>
+      <a class="nav-item" href="#/history" data-view="history" title="Match History (4)"><span data-icon="history"></span><span class="nav-label">History</span></a>
+      <a class="nav-item nav-live" href="#/champselect" data-view="champselect" title="Champ Select (6)" hidden><span data-icon="target"></span><span class="nav-label">Champ Select</span><span class="live-dot" aria-hidden="true"></span></a>
     </nav>
     <div class="rail-foot">
       <div id="update-note" class="update-note" role="status" hidden></div>
       <span id="fixture-badge" class="fixture-badge" hidden title="ARENA_COMPANION_FIXTURE is set">Sample data</span>
+      <a class="nav-item nav-settings" href="#/settings" data-view="settings" title="Settings (5)"><span data-icon="settings"></span><span class="nav-label">Settings</span></a>
       <div class="profile" title="Player being tracked">
         <span class="avatar"><span id="profile-avatar">?</span><span id="profile-dot" class="status-dot"></span></span>
         <span class="profile-text"><b id="profile-name">—</b><small id="profile-sub">—</small></span>
@@ -37,7 +38,7 @@
 
   <div class="main-col">
     <header class="topbar">
-      <h1 id="page-title" class="topbar-title">Dashboard</h1>
+      <h1 id="page-title" class="topbar-title">Overview</h1>
       <button id="open-palette" class="search-trigger" aria-label="Search and commands (Ctrl+K)"><span data-icon="search" data-size="16"></span><span class="search-trigger-text">Search champions, commands…</span><kbd>Ctrl K</kbd></button>
       <div class="topbar-right">
         <span id="lcu-pill" class="pill off" role="status"><span class="status-dot"></span><span id="lcu-text">Connecting…</span></span>
@@ -47,6 +48,7 @@
 
     <main id="content" class="content">
       <div id="view-dashboard" class="view"></div>
+      <div id="view-remaining" class="view hidden"></div>
       <div id="view-champions" class="view hidden"></div>
       <div id="view-champion" class="view hidden"></div>
       <div id="view-history" class="view hidden"></div>
@@ -75,7 +77,8 @@
     <header class="sheet-head"><h2><span data-icon="keyboard"></span> Keyboard shortcuts</h2><button id="shortcuts-close" class="icon-btn" aria-label="Close"><span data-icon="x"></span></button></header>
     <dl class="keys">
       <div><dt><kbd>Ctrl</kbd><kbd>K</kbd> / <kbd>Ctrl</kbd><kbd>P</kbd></dt><dd>Command palette</dd></div>
-      <div><dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Dashboard, Champions, History, Champ Select, Settings</dd></div>
+      <div><dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Overview, Remaining, Champions, History, Settings</dd></div>
+      <div><dt><kbd>6</kbd></dt><dd>Champ select</dd></div>
       <div><dt><kbd>/</kbd></dt><dd>Search champions</dd></div>
       <div><dt><kbd>[</kbd></dt><dd>Collapse or expand the sidebar</dd></div>
       <div><dt><kbd>?</kbd></dt><dd>This sheet</dd></div>
@@ -85,6 +88,7 @@
 </div>
 
 <div id="toast" class="toast" role="status" hidden></div>
+<div id="postgame" class="postgame" hidden></div>
 <div id="celebrate" class="celebrate" hidden></div>
 <script type="module" src="/js/main.js"></script>
 </body>

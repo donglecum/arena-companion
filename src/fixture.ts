@@ -1,8 +1,12 @@
 // Sample data for running the UI with no League client or tracker:
-// ARENA_COMPANION_FIXTURE=1 (dashboard) or =champselect (a live Arena champ select).
-// Deterministic, so screenshots are comparable run to run. Champion art is
-// generated locally (see fixtureArt) because the sample must work offline.
+// ARENA_COMPANION_FIXTURE=1 (partial Arena God progress) or any scenario name
+// below (=champselect is a live Arena champ select). Settings › Sample states
+// switches scenarios at runtime. Deterministic, so screenshots are comparable
+// run to run. Champion art is generated locally (see fixtureArt) because the
+// sample must work offline.
 import type { DDragonChampion } from './ddragon.ts';
+import { aggregate, matchList } from './scan.ts';
+import { computePostGameEvent, findFinishedGame, wonSnapshot, type PostGameEvent } from './postgame.ts';
 
 const ROSTER = `Aatrox|Aatrox|Fighter,Tank;Ahri|Ahri|Mage,Assassin;Akali|Akali|Assassin;Akshan|Akshan|Marksman,Assassin;Alistar|Alistar|Tank,Support;Ambessa|Ambessa|Fighter,Assassin;Amumu|Amumu|Tank,Mage;Anivia|Anivia|Mage,Support;Annie|Annie|Mage;Aphelios|Aphelios|Marksman;Ashe|Ashe|Marksman,Support;AurelionSol|Aurelion Sol|Mage;Aurora|Aurora|Mage,Assassin;Azir|Azir|Mage,Marksman;Bard|Bard|Support,Mage;Belveth|Bel'Veth|Fighter;Blitzcrank|Blitzcrank|Tank,Fighter;Brand|Brand|Mage;Braum|Braum|Support,Tank;Briar|Briar|Fighter,Assassin;Caitlyn|Caitlyn|Marksman;Camille|Camille|Fighter;Cassiopeia|Cassiopeia|Mage;Chogath|Cho'Gath|Tank,Mage;Corki|Corki|Marksman;Darius|Darius|Fighter,Tank;Diana|Diana|Fighter,Mage;Draven|Draven|Marksman;DrMundo|Dr. Mundo|Tank,Fighter;Ekko|Ekko|Assassin,Fighter;Elise|Elise|Mage,Fighter;Evelynn|Evelynn|Assassin,Mage;Ezreal|Ezreal|Marksman,Mage;Fiddlesticks|Fiddlesticks|Mage,Support;Fiora|Fiora|Fighter,Assassin;Fizz|Fizz|Assassin,Fighter;Galio|Galio|Tank,Mage;Gangplank|Gangplank|Fighter;Garen|Garen|Fighter,Tank;Gnar|Gnar|Fighter,Tank;Gragas|Gragas|Fighter,Mage;Graves|Graves|Marksman;Gwen|Gwen|Fighter,Assassin;Hecarim|Hecarim|Fighter,Tank;Heimerdinger|Heimerdinger|Mage,Support;Hwei|Hwei|Mage,Support;Illaoi|Illaoi|Fighter,Tank;Irelia|Irelia|Fighter,Assassin;Ivern|Ivern|Support,Mage;Janna|Janna|Support,Mage;JarvanIV|Jarvan IV|Tank,Fighter;Jax|Jax|Fighter,Assassin;Jayce|Jayce|Fighter,Marksman;Jhin|Jhin|Marksman,Mage;Jinx|Jinx|Marksman;Kaisa|Kai'Sa|Marksman;Kalista|Kalista|Marksman;Karma|Karma|Mage,Support;Karthus|Karthus|Mage;Kassadin|Kassadin|Assassin,Mage;Katarina|Katarina|Assassin,Mage;Kayle|Kayle|Fighter,Support;Kayn|Kayn|Fighter,Assassin;Kennen|Kennen|Mage;Khazix|Kha'Zix|Assassin;Kindred|Kindred|Marksman;Kled|Kled|Fighter,Tank;KogMaw|Kog'Maw|Marksman,Mage;KSante|K'Sante|Tank,Fighter;Leblanc|LeBlanc|Assassin,Mage;LeeSin|Lee Sin|Fighter,Assassin;Leona|Leona|Tank,Support;Lillia|Lillia|Fighter,Mage;Lissandra|Lissandra|Mage;Lucian|Lucian|Marksman;Lulu|Lulu|Support,Mage;Lux|Lux|Mage,Support;Malphite|Malphite|Tank,Fighter;Malzahar|Malzahar|Mage,Assassin;Maokai|Maokai|Tank,Mage;MasterYi|Master Yi|Assassin,Fighter;Mel|Mel|Mage,Support;Milio|Milio|Support,Mage;MissFortune|Miss Fortune|Marksman;MonkeyKing|Wukong|Fighter,Tank;Mordekaiser|Mordekaiser|Fighter;Morgana|Morgana|Mage,Support;Naafiri|Naafiri|Assassin,Fighter;Nami|Nami|Support,Mage;Nasus|Nasus|Fighter,Tank;Nautilus|Nautilus|Tank,Support;Neeko|Neeko|Mage,Support;Nidalee|Nidalee|Assassin,Mage;Nilah|Nilah|Fighter,Assassin;Nocturne|Nocturne|Assassin,Fighter;Nunu|Nunu & Willump|Tank,Mage;Olaf|Olaf|Fighter,Tank;Orianna|Orianna|Mage,Support;Ornn|Ornn|Tank,Fighter;Pantheon|Pantheon|Fighter,Assassin;Poppy|Poppy|Tank,Fighter;Pyke|Pyke|Support,Assassin;Qiyana|Qiyana|Assassin,Fighter;Quinn|Quinn|Marksman,Assassin;Rakan|Rakan|Support;Rammus|Rammus|Tank,Fighter;RekSai|Rek'Sai|Fighter;Rell|Rell|Tank,Support;Renata|Renata Glasc|Support,Mage;Renekton|Renekton|Fighter,Tank;Rengar|Rengar|Assassin,Fighter;Riven|Riven|Fighter,Assassin;Rumble|Rumble|Fighter,Mage;Ryze|Ryze|Mage,Fighter;Samira|Samira|Marksman,Assassin;Sejuani|Sejuani|Tank,Fighter;Senna|Senna|Marksman,Support;Seraphine|Seraphine|Mage,Support;Sett|Sett|Fighter,Tank;Shaco|Shaco|Assassin;Shen|Shen|Tank;Shyvana|Shyvana|Fighter,Tank;Singed|Singed|Tank,Fighter;Sion|Sion|Tank,Fighter;Sivir|Sivir|Marksman;Skarner|Skarner|Tank,Fighter;Smolder|Smolder|Marksman,Mage;Sona|Sona|Support,Mage;Soraka|Soraka|Support,Mage;Swain|Swain|Mage,Fighter;Sylas|Sylas|Mage,Assassin;Syndra|Syndra|Mage;TahmKench|Tahm Kench|Support,Tank;Taliyah|Taliyah|Mage,Support;Talon|Talon|Assassin;Taric|Taric|Support,Fighter;Teemo|Teemo|Marksman,Assassin;Thresh|Thresh|Support,Fighter;Tristana|Tristana|Marksman,Assassin;Trundle|Trundle|Fighter,Tank;Tryndamere|Tryndamere|Fighter,Assassin;TwistedFate|Twisted Fate|Mage;Twitch|Twitch|Marksman,Assassin;Udyr|Udyr|Fighter,Tank;Urgot|Urgot|Fighter,Tank;Varus|Varus|Marksman,Mage;Vayne|Vayne|Marksman,Assassin;Veigar|Veigar|Mage;Velkoz|Vel'Koz|Mage;Vex|Vex|Mage;Vi|Vi|Fighter,Assassin;Viego|Viego|Assassin,Fighter;Viktor|Viktor|Mage;Vladimir|Vladimir|Mage,Fighter;Volibear|Volibear|Fighter,Tank;Warwick|Warwick|Fighter,Tank;Xayah|Xayah|Marksman;Xerath|Xerath|Mage;XinZhao|Xin Zhao|Fighter,Assassin;Yasuo|Yasuo|Fighter,Assassin;Yone|Yone|Assassin,Fighter;Yorick|Yorick|Fighter,Tank;Yuumi|Yuumi|Support,Mage;Yunara|Yunara|Marksman;Zac|Zac|Tank,Fighter;Zed|Zed|Assassin;Zeri|Zeri|Marksman;Ziggs|Ziggs|Mage;Zilean|Zilean|Support,Mage;Zoe|Zoe|Mage,Support;Zyra|Zyra|Mage,Support`;
 
@@ -70,6 +74,84 @@ export function buildFixture(now: number): Fixture {
     arenaGod: won.size + 7, // wins from before match-v5 retention
     summoner: { gameName: 'Player', tagLine: 'NA1', summonerLevel: 512 },
   };
+}
+
+/** Sample states, so every screen can be checked without playing League. */
+export const FIXTURE_SCENARIOS = [
+  'idle', // partial Arena God progress, nothing live
+  'champselect', // live Arena champ select; favorites: 2 needed, 2 won, 1 unknown
+  'crowd-needed', // champ select; every favorite still needed
+  'crowd-won', // champ select; every favorite already won
+  'first-win', // a game just won a new champion
+  'result', // a game just ended on a champion already won
+  'result-needed', // a game just ended 2nd on a champion still needed
+  'complete', // every champion won: Arena God
+] as const;
+export type FixtureScenarioName = (typeof FIXTURE_SCENARIOS)[number];
+
+export const isFixtureScenario = (name: string): name is FixtureScenarioName =>
+  (FIXTURE_SCENARIOS as readonly string[]).includes(name);
+
+/** ARENA_COMPANION_FIXTURE value → scenario ('1' and unknown values are the idle sample). */
+export const fixtureScenarioName = (value: string): FixtureScenarioName => (isFixtureScenario(value) ? value : 'idle');
+
+export interface FixtureScenario {
+  name: FixtureScenarioName;
+  fixture: Fixture;
+  phase: 'None' | 'ChampSelect';
+  /** Champion hovered in champ select. */
+  pick: string | null;
+  /** Crowd favorite champion keys, in lobby order. */
+  crowd: number[];
+  /** Champions only the champion index knows (like one released after the last scan), so their win state is unknown. */
+  indexOnly: { key: number; name: string; image: string }[];
+  event: PostGameEvent | null;
+}
+
+/** A scenario applied to a fresh sample player. */
+export function fixtureScenario(value: string, now: number): FixtureScenario {
+  const name = fixtureScenarioName(value);
+  const fixture = buildFixture(now);
+  const scenario: FixtureScenario = { name, fixture, phase: 'None', pick: null, crowd: [], indexOnly: [], event: null };
+  const cards = () => aggregate(fixture.store, fixture.champions, fixture.masteries, fixture.manual).cards;
+  const owned = new Set(fixture.owned);
+  const neededOwned = () => cards().filter((c) => !c.won && owned.has(Number(c.key))).sort((a, b) => b.masteryPoints - a.masteryPoints);
+  const won = () => cards().filter((c) => c.won);
+  const keys = (list: { key: string }[]) => list.filter(Boolean).map((c) => Number(c.key));
+
+  if (name === 'champselect' || name === 'crowd-needed' || name === 'crowd-won') {
+    const needed = neededOwned();
+    const done = won();
+    scenario.phase = 'ChampSelect';
+    scenario.pick = needed[2]?.name ?? null;
+    if (name === 'crowd-needed') scenario.crowd = keys([needed[0], needed[3], needed[5], needed[7], needed[9]]);
+    else if (name === 'crowd-won') scenario.crowd = keys(done.slice(3, 8));
+    else {
+      scenario.indexOnly = [{ key: 9001, name: 'New champion', image: '' }];
+      scenario.crowd = [...keys([done[3], needed[0], needed[5], done[4]]), 9001];
+    }
+  } else if (name === 'first-win' || name === 'result' || name === 'result-needed') {
+    const before = cards();
+    const target = name === 'first-win' ? neededOwned()[0]
+      : name === 'result-needed' ? neededOwned()[1]
+      : [...won()].filter((c) => c.wins > 0).sort((a, b) => b.games - a.games)[0];
+    const placement = name === 'first-win' ? 1 : name === 'result' ? 4 : 2;
+    const arenaGodBefore = fixture.arenaGod;
+    fixture.store.matches['NA1_5100000001'] = { championName: target.id, win: placement === 1, placement, gameEnd: now - 90_000 };
+    // Riot's count has caught up with the new champion by the time the card shows.
+    if (name === 'first-win') fixture.arenaGod += 1;
+    const game = findFinishedGame(matchList(fixture.store, fixture.champions), now - 2 * 60_000);
+    const previous = wonSnapshot(before);
+    scenario.event = computePostGameEvent(previous, wonSnapshot(cards(), previous), null,
+      { arenaGodBefore, total: fixture.champions.length, game }, now);
+  } else if (name === 'complete') {
+    // The champions still missing were won over the last few weeks.
+    cards().filter((c) => !c.won).forEach((c, i) => {
+      fixture.store.matches[`NA1_${5_200_000_000 + i}`] = { championName: c.id, win: true, placement: 1, gameEnd: now - (2 + i) * 6 * 3600_000 };
+    });
+    fixture.arenaGod = fixture.champions.length;
+  }
+  return scenario;
 }
 
 function hash(text: string) {

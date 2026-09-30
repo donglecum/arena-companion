@@ -1,5 +1,8 @@
 import { $, esc, changed, art, chip, statusOf, cardByName, cardById, num } from '../util.js';
 import { icon } from '../icons.js';
+import '../crowd.js'; // sets globalThis.ArenaCrowd (shared with the overlay)
+
+const MARK = { needed: 'Need', won: 'Won', unknown: '?' };
 
 let miniApplied = false;
 
@@ -33,9 +36,10 @@ export function renderChampSelect(st) {
   }
   if (!live) { if (changed(root, `idle|${s?.lcuConnected}|${s?.gameflowPhase}`)) root.innerHTML = idle(s); return; }
   const cur = cs.championName ? cardByName(cs.championName) : null;
-  const favorites = (s.crowdFavorites ?? []).map((f) => ({ f, card: cardById(String(f.name)) ?? cardByName(f.name) }));
+  const crowd = globalThis.ArenaCrowd.crowdModel({ ...s, overlayPreview: false });
+  const favorites = crowd.rows.map((row) => ({ row, card: cardById(row.name) ?? cardByName(row.name) }));
   const needed = (cs.neededOwned ?? []).map((n) => cardByName(n.name)).filter(Boolean);
-  const sig = JSON.stringify([cs.championName, cur?.won, favorites.map((x) => `${x.f.id}${x.f.won}`), needed.map((c) => c.id), s.ddragonVersion]);
+  const sig = JSON.stringify([cs.championName, cur?.won, crowd.rows.map((r) => `${r.key}${r.state}`), needed.map((c) => c.id), s.ddragonVersion]);
   if (!changed(root, sig)) return;
   const st8 = cur ? statusOf(cur) : 'unknown';
   root.innerHTML = `
@@ -52,9 +56,10 @@ export function renderChampSelect(st) {
         </div>
       </div>
     </section>
-    ${favorites.length ? `<section class="card"><header class="card-head"><div><h2>${icon('crown', 16)} Crowd favorites</h2><p class="sub">Also shown in the panel beside the client</p></div></header>
-      <div class="fav-row">${favorites.map(({ f, card }) => `<a class="fav ${f.won === true ? 'won' : f.won === false ? 'needed' : 'unknown'}" href="${card ? `#/champion/${encodeURIComponent(card.id)}` : '#/champselect'}">
-        ${art(card ?? { id: String(f.id), name: f.name }, 'tile', 'fav-art')}<span class="fav-name">${esc(f.name)}</span><span class="fav-mark">${icon(f.won === true ? 'check' : f.won === false ? 'x' : 'info', 14)}</span></a>`).join('')}</div></section>` : ''}
+    ${favorites.length ? `<section class="card"><header class="card-head"><div><h2>${icon('crown', 16)} Crowd favorites</h2><p class="sub">Also shown in the panel beside the client</p></div>
+      <span class="fav-summary ${crowd.tone}">${esc(crowd.summary)}</span></header>
+      <div class="fav-row">${favorites.map(({ row, card }) => `<a class="fav ${row.state}" href="${card ? `#/champion/${encodeURIComponent(card.id)}` : '#/champselect'}" aria-label="${esc(row.label)}">
+        ${art(card ?? { id: String(row.id), name: row.name }, 'tile', 'fav-art')}<span class="fav-name">${esc(row.name)}</span><span class="fav-mark">${row.state === 'won' ? icon('check', 13) : ''}${MARK[row.state]}</span></a>`).join('')}</div></section>` : ''}
     <section class="section"><header class="section-head"><h2>${icon('target', 16)} Needed &amp; owned</h2><span class="sub">By mastery · a win on any of these is progress</span></header>
       ${needed.length ? `<div class="pick-grid">${needed.slice(0, 18).map((c) => `<a class="pick" href="#/champion/${encodeURIComponent(c.id)}">${art(c, 'splash', 'pick-art')}<span class="pick-body"><b>${esc(c.name)}</b><small>${c.masteryLevel ? `M${c.masteryLevel} · ${num(Math.round((c.masteryPoints || 0) / 1000))}k` : 'New'}${c.games ? ` · ${c.games}g` : ''}</small></span></a>`).join('')}</div>`
         : `<div class="empty-inline">${icon('crown', 16)} Every champion you own is already won.</div>`}

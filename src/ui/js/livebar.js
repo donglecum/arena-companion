@@ -1,16 +1,19 @@
 // Bottom "now playing" strip: what League is doing right now, or your last game.
 import { $, esc, changed, art, statusOf, cardByName, cardById, ordinal, relSpan } from './util.js';
 import { icon } from './icons.js';
+import { arenaProgress } from './progress.js';
 
 const IN_GAME = new Set(['GameStart', 'InProgress', 'Reconnect']);
 const POST_GAME = new Set(['WaitingForStats', 'PreEndOfGame', 'EndOfGame']);
+/** The backend stops waiting for a match record after about 15 minutes; this is the safety net. */
+const PENDING_MAX_MS = 20 * 60_000;
 
 export function renderLiveBar(st) {
   const bar = $('livebar');
   const s = st.status;
   const cl = s?.checklist;
-  const count = s?.arenaGod ?? cl?.wonCount ?? 0;
-  const total = cl?.total ?? 0;
+  const { count, total } = arenaProgress(s);
+  const pending = s?.lastEvent?.pending === true && Date.now() - Date.parse(s.lastEvent.at) < PENDING_MAX_MS;
   $('lb-progress').style.width = total ? `${Math.min(100, (count / total) * 100).toFixed(2)}%` : '0%';
   let main;
   let href = '';
@@ -27,6 +30,8 @@ export function renderLiveBar(st) {
     main = `<span class="lb-icon live">${icon('zap', 18)}</span><span class="lb-text"><b><span class="live-dot"></span>Game in progress</b><small>The checklist updates when it ends</small></span>`;
   } else if (POST_GAME.has(s.gameflowPhase) || s.scanning) {
     main = `<span class="lb-icon">${icon('refresh', 18, 'spin')}</span><span class="lb-text"><b>${s.scanning ? 'Updating your checklist' : 'Game over'}</b><small>${s.scanning ? 'Scanning new Arena games…' : 'Waiting for results'}</small></span>`;
+  } else if (pending) {
+    main = `<span class="lb-icon">${icon('history', 18)}</span><span class="lb-text"><b>Game over · waiting for the match record</b><small>Riot publishes it once the last team falls — checking again shortly</small></span>`;
   } else {
     const lastMatch = st.matches?.[0];
     const lastCard = lastMatch ? cardById(lastMatch.championId) ?? { id: lastMatch.championId, name: lastMatch.championName } : null;

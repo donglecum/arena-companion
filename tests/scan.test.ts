@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectMatchIds, collectFreshMatchIds, aggregate, update } from '../src/scan.ts';
+import { collectMatchIds, collectFreshMatchIds, aggregate, update, applyManualMark } from '../src/scan.ts';
 
 test('collectMatchIds pages until depth and stops on short page', async () => {
   const pages = [
@@ -57,6 +57,27 @@ test('aggregate counts wins per champion and marks manual-only wins', () => {
   const galio = result.cards.find((c) => c.id === 'Galio');
   assert.equal(galio.won, true);
   assert.equal(galio.manual, true);
+});
+
+test('manual marks toggle a win by name or id, and never undo a recorded win', () => {
+  const store = { matches: { a: { championName: 'Annie', win: true, placement: 1, gameEnd: 100 } } };
+  const champions = [
+    { id: 'Annie', key: '1', name: 'Annie' },
+    { id: 'MonkeyKing', key: '62', name: 'Wukong' },
+  ];
+  const result = aggregate(store, champions, {}, new Set<string>());
+  assert.equal(result.wonCount, 1);
+  assert.equal(applyManualMark(result, 'Wukong', true), true);
+  const wukong = result.cards.find((c) => c.id === 'MonkeyKing');
+  assert.deepEqual([wukong.manual, wukong.won, result.wonCount], [true, true, 2]);
+  assert.equal(applyManualMark(result, 'MonkeyKing', false), true);
+  assert.deepEqual([wukong.manual, wukong.won, result.wonCount], [false, false, 1]);
+  // Removing a mark from a champion won in match history keeps it won.
+  applyManualMark(result, 'Annie', true);
+  applyManualMark(result, 'Annie', false);
+  assert.equal(result.cards.find((c) => c.id === 'Annie').won, true);
+  assert.equal(result.wonCount, 1);
+  assert.equal(applyManualMark(result, 'Nobody', true), false);
 });
 
 test('aggregate reports ordered placement counts and one-decimal rates over scanned games', () => {

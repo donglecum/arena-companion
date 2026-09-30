@@ -1,48 +1,56 @@
 /* Arena Companion UI: routing, shell chrome, shortcuts. Views live in ./views. */
 import { state, onChange, refresh, postJson } from './store.js';
-import { $, esc, art, cardByName, installImageHandlers, relTime, statusOf, reducedMotion } from './util.js';
+import { $, esc, art, cardById, cardByName, installImageHandlers, relTime, statusOf, ordinal, tierOf } from './util.js';
 import { icon } from './icons.js';
+import { NAV, CHILD_VIEWS, parseRoute, viewForKey, viewMeta, activeNavView, showLiveNav } from './nav.js';
+import { arenaProgress, postGameProgress, postGameResult } from './progress.js';
 import { renderDashboard } from './views/dashboard.js';
+import { renderRemaining } from './views/remaining.js';
 import { renderChampions, focusChampionSearch, rescan } from './views/champions.js';
 import { renderChampion } from './views/champion.js';
 import { renderHistory } from './views/history.js';
 import { renderChampSelect, toggleMini } from './views/champselect.js';
-import { renderSettings, togglePreview } from './views/settings.js';
+import { renderSettings, togglePreview, SAMPLE_SCENARIOS, loadScenario } from './views/settings.js';
 import { initPalette, openPalette, closePalette } from './palette.js';
 import { renderLiveBar } from './livebar.js';
 
-const VIEWS = {
-  dashboard: { title: 'Dashboard', render: renderDashboard },
-  champions: { title: 'Champions', render: renderChampions },
-  champion: { title: 'Champion', render: renderChampion, parent: 'champions' },
-  history: { title: 'Match History', render: renderHistory },
-  champselect: { title: 'Champ Select', render: renderChampSelect },
-  settings: { title: 'Settings', render: renderSettings },
+const RENDER = {
+  dashboard: renderDashboard,
+  remaining: renderRemaining,
+  champions: renderChampions,
+  champion: renderChampion,
+  history: renderHistory,
+  champselect: renderChampSelect,
+  settings: renderSettings,
 };
-const NAV_ORDER = ['dashboard', 'champions', 'history', 'champselect', 'settings'];
+const ALL_VIEWS = [...NAV.map((n) => n.view), ...Object.keys(CHILD_VIEWS)];
 
-function route() {
-  const [view, ...rest] = location.hash.replace(/^#\/?/, '').split('/');
-  return VIEWS[view] ? { view, param: decodeURIComponent(rest.join('/')) } : { view: 'dashboard', param: '' };
-}
-
-let current = route();
+let current = parseRoute(location.hash);
 
 function renderView() {
   const { view, param } = current;
-  VIEWS[view].render(state, param);
+  RENDER[view](state, param);
 }
 
 function renderChrome() {
   const s = state.status;
   const { view, param } = current;
-  const meta = VIEWS[view];
+  const meta = viewMeta(view);
   const card = view === 'champion' ? state.status?.cards?.find((c) => c.id === param) : null;
   $('page-title').innerHTML = meta.parent
-    ? `<a href="#/${meta.parent}">${VIEWS[meta.parent].title}</a>${icon('chevronRight', 14, 'crumb-sep')}<span>${esc(card?.name ?? param)}</span>`
+    ? `<a href="#/${meta.parent}">${esc(viewMeta(meta.parent).title)}</a>${icon('chevronRight', 14, 'crumb-sep')}<span>${esc(card?.name ?? param)}</span>`
     : esc(meta.title);
   document.title = `${card?.name ?? meta.title} · Arena Companion`;
-  document.querySelectorAll('.nav-item').forEach((a) => a.classList.toggle('active', a.dataset.view === (meta.parent ?? view)));
+  const active = activeNavView(view);
+  document.querySelectorAll('.nav-item').forEach((a) => {
+    const on = a.dataset.view === active;
+    a.classList.toggle('active', on);
+    if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  // Champ Select is transient: in the sidebar while League is in champ select (or while open).
+  document.querySelector('.nav-live').hidden = !showLiveNav(s?.champSelect?.available, view);
+  const p = arenaProgress(s);
+  $('nav-remaining').textContent = p.known && !p.complete ? String(p.remaining) : '';
 
   const pill = $('lcu-pill');
   const phase = s?.gameflowPhase ?? '';
@@ -95,17 +103,18 @@ function renderAll() {
   renderView();
   renderLiveBar(state);
   handleEvent();
+  refreshCelebration();
 }
 
 function showRoute() {
-  current = route();
-  NAV_ORDER.concat('champion').forEach((v) => $(`view-${v}`).classList.toggle('hidden', v !== current.view));
+  current = parseRoute(location.hash);
+  ALL_VIEWS.forEach((v) => $(`view-${v}`).classList.toggle('hidden', v !== current.view));
   if (current.view !== 'champselect' && document.body.classList.contains('mini')) toggleMini(false);
   $('content').scrollTop = 0;
   renderAll();
 }
 
-/* ---------- toasts & the first-win celebration ---------- */
+/* ---------- toasts ---------- */
 let toastTimer = null;
 function toast(text, kind = 'ok', ms = 3500) {
   const el = $('toast');
@@ -118,30 +127,141 @@ function toast(text, kind = 'ok', ms = 3500) {
 window.addEventListener('ac-toast', (e) => toast(e.detail.text, e.detail.kind, e.detail.kind === 'error' ? 8000 : 3500));
 window.addEventListener('ac-render', () => renderAll());
 
+/* ---------- post-game: the first-win celebration and the quieter result card ----------
+   A game usually ends with this window hidden in the tray. The app never raises
+   itself; the event waits until the window is next visible (the Windows
+   notification for a first win opens it), and goes stale after 20 minutes. */
 const pageLoadedAt = Date.now();
+const POST_GAME_FRESH_MS = 20 * 60_000;
 let lastEventAt = null;
+let queuedEvent = null;
+
 function handleEvent() {
   const ev = state.status?.lastEvent;
   if (!ev || ev.at === lastEventAt) return;
   lastEventAt = ev.at;
-  // Events from before this page loaded were already celebrated (or missed long ago).
+  // Events from before this page loaded were already shown (or missed long ago).
   if (Date.parse(ev.at) < pageLoadedAt - 60_000) return;
+  // Still waiting for Riot's match record: the live bar says so; the card comes with the record.
+  if (ev.pending) return;
+  queuedEvent = ev;
+  presentEvent();
+}
+
+function presentEvent() {
+  if (!queuedEvent || document.hidden) return;
+  const ev = queuedEvent;
+  queuedEvent = null;
+  if (Date.now() - Date.parse(ev.at) > POST_GAME_FRESH_MS) return;
   if (ev.type === 'new-win') celebrate(ev);
+  else if (ev.game) showResult(ev);
   else toast('Checklist updated after your game.', 'ok');
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) presentEvent(); });
+
+let celebrating = null;
+let celebrateTimer = null;
+let celebrateFocus = null;
+
+function celebrationProgress(ev) {
+  const s = state.status;
+  const p = postGameProgress(ev, s);
+  const total = s?.checklist?.total ?? ev.total ?? 0;
+  const remaining = p?.remaining ?? arenaProgress(s).remaining;
+  const step = p && p.after !== null
+    ? `<div class="cel-label">Arena God +${p.gained}</div>
+       <div class="cel-count num"><span class="cel-from">${p.before}</span>${icon('arrowRight', 18, 'cel-arrow')}<b class="cel-to">${p.after}</b></div>`
+    // Riot counts older wins match history cannot place, so this may be one it already had.
+    : `<div class="cel-label">Arena God</div>
+       <div class="cel-count num"><b class="cel-to plain">${arenaProgress(s).count}</b><span class="cel-of">/ ${total || '–'}</span></div>`;
+  const left = remaining === 0 && total
+    ? `<div class="cel-left done">${icon('crown', 15)} Every champion won — Arena God</div>`
+    : `<div class="cel-left"><b class="num">${remaining}</b> ${remaining === 1 ? 'champion' : 'champions'} left</div>`;
+  return step + left;
 }
 
 function celebrate(ev) {
-  const card = cardByName(ev.champion);
+  closeResult();
+  const card = cardByName(ev.champion) ?? (ev.game ? cardById(ev.game.championId) : null);
+  const name = card?.name ?? ev.champion ?? 'New champion';
+  const others = (ev.newChampions ?? []).filter((n) => n !== ev.champion);
   const el = $('celebrate');
-  const confetti = reducedMotion() ? '' : Array.from({ length: 26 }, (_, i) => `<i style="--x:${(Math.random() * 100).toFixed(1)}%;--d:${(Math.random() * 0.6).toFixed(2)}s;--r:${Math.round(Math.random() * 360)}deg;--c:${['var(--cyan)', 'var(--blue-bright)', 'var(--gold)', 'var(--won)'][i % 4]}"></i>`).join('');
-  el.innerHTML = `<div class="confetti">${confetti}</div><div class="celebrate-card">
-    ${card ? art(card, 'splash', 'celebrate-art') : ''}
-    <div class="celebrate-body"><div class="eyebrow">${icon('sparkles', 14)} First Arena win</div><h2>${esc(ev.champion ?? 'New champion')}</h2>
-    <p class="num">${ev.wonCount} / ${state.status?.checklist?.total ?? '–'} champions won</p><button class="btn primary" id="celebrate-ok">Nice</button></div></div>`;
+  celebrating = ev;
+  celebrateFocus = document.activeElement;
+  el.innerHTML = `<div class="celebrate-card" role="dialog" aria-modal="true" aria-labelledby="cel-name" aria-describedby="cel-progress">
+    <div class="cel-art">${card ? art(card, 'splash') : ''}</div>
+    <div class="celebrate-body">
+      <div class="cel-eyebrow">${icon('sparkles', 14)} First win</div>
+      <h2 id="cel-name">${esc(name)}</h2>
+      <div class="cel-place">${icon('trophy', 14)} 1st place</div>
+      <div class="cel-progress" id="cel-progress">${celebrationProgress(ev)}</div>
+      ${others.length ? `<p class="cel-also">Also new: ${others.map(esc).join(', ')}</p>` : ''}
+      <button class="btn primary" id="celebrate-ok">Nice</button>
+    </div>
+  </div>`;
   el.hidden = false;
-  const close = () => { el.hidden = true; el.innerHTML = ''; };
-  $('celebrate-ok').addEventListener('click', close);
-  setTimeout(close, 9000);
+  $('celebrate-ok').addEventListener('click', closeCelebrate);
+  $('celebrate-ok').focus({ preventScroll: true });
+  clearTimeout(celebrateTimer);
+  celebrateTimer = setTimeout(closeCelebrate, 9000);
+}
+
+/** Riot's count often lands a few seconds after the scan; update the numbers in place. */
+function refreshCelebration() {
+  const box = celebrating && document.getElementById('cel-progress');
+  if (!box) return;
+  const html = celebrationProgress(celebrating);
+  if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
+}
+
+function closeCelebrate() {
+  const el = $('celebrate');
+  clearTimeout(celebrateTimer);
+  if (el.hidden) return;
+  el.hidden = true;
+  el.innerHTML = '';
+  celebrating = null;
+  if (celebrateFocus?.isConnected) celebrateFocus.focus({ preventScroll: true });
+}
+
+let resultTimer = null;
+function showResult(ev) {
+  const r = postGameResult(ev, state.status, state.insights);
+  if (!r) return;
+  const card = cardById(r.championId) ?? { id: r.championId, name: r.name };
+  const [verdictIcon, verdictText] = {
+    'already-won': ['check', 'Already won · no change'],
+    'still-needed': ['target', r.placement === 2 ? 'Still needed · one place short' : 'Still needed'],
+    'first-win': ['sparkles', 'First win'],
+    unknown: ['info', 'Not in your checklist yet'],
+  }[r.verdict];
+  const session = r.session
+    ? `<div class="result-meta">Latest session: <b class="num">${r.session.newWins}</b> new ${r.session.newWins === 1 ? 'win' : 'wins'} / <b class="num">${r.session.games}</b> ${r.session.games === 1 ? 'game' : 'games'}</div>` : '';
+  const el = $('postgame');
+  el.innerHTML = `<div class="result-card ${r.verdict}" role="status">
+    <a class="result-art" href="#/champion/${encodeURIComponent(card.id)}" tabindex="-1" aria-hidden="true">${art(card, 'tile')}</a>
+    <div class="result-body">
+      <div class="result-title"><span class="result-place ${tierOf(r.placement)}">${r.placement ? ordinal(r.placement) : 'Unplaced'}</span><span class="dot-sep">·</span><a href="#/champion/${encodeURIComponent(card.id)}">${esc(r.name)}</a></div>
+      <div class="result-verdict">${icon(verdictIcon, 13)}${verdictText}</div>
+      <div class="result-meta"><b class="num">${r.remaining}</b> ${r.remaining === 1 ? 'champion' : 'champions'} remaining</div>
+      ${session}
+    </div>
+    <button class="icon-btn small result-close" aria-label="Dismiss">${icon('x', 14)}</button>
+  </div>`;
+  el.hidden = false;
+  el.querySelector('.result-close').addEventListener('click', closeResult);
+  el.querySelectorAll('a').forEach((a) => a.addEventListener('click', closeResult));
+  const arm = (ms) => { clearTimeout(resultTimer); resultTimer = setTimeout(closeResult, ms); };
+  el.onmouseenter = () => clearTimeout(resultTimer);
+  el.onmouseleave = () => arm(4000);
+  arm(12_000);
+}
+
+function closeResult() {
+  clearTimeout(resultTimer);
+  const el = $('postgame');
+  el.hidden = true;
+  el.innerHTML = '';
 }
 
 /* ---------- commands & shortcuts ---------- */
@@ -177,10 +297,12 @@ function shortcutsSheet(show = true) {
 }
 
 function commands() {
-  const go = (view, label, keys, iconName) => ({ kind: 'Go to', label, keys, icon: iconName, run: () => { location.hash = `#/${view}`; } });
+  const go = ({ view, title, key, icon: iconName }) => ({ kind: 'Go to', label: title, keys: key, icon: iconName, run: () => { location.hash = `#/${view}`; } });
+  const samples = state.status?.fixture
+    ? SAMPLE_SCENARIOS.map(([name, label]) => ({ kind: 'Sample', label: `Sample: ${label}`, hint: 'Synthetic data', icon: 'sparkles', run: () => loadScenario(name) }))
+    : [];
   return [
-    go('dashboard', 'Dashboard', '1', 'dashboard'), go('champions', 'Champions', '2', 'swords'), go('history', 'Match history', '3', 'history'),
-    go('champselect', 'Champ select', '4', 'target'), go('settings', 'Settings', '5', 'settings'),
+    ...NAV.map(go),
     { kind: 'Command', label: 'Update scan', icon: 'refresh', run: () => rescan($('sync-btn')) },
     { kind: 'Command', label: 'Full rescan', hint: 'Rebuild from all match history', icon: 'refresh', run: () => { toast('Full rescan started — this can take several minutes…'); void rescan($('sync-btn'), true); } },
     { kind: 'Command', label: 'Search champions', keys: '/', icon: 'search', run: focusChampionSearch },
@@ -190,6 +312,7 @@ function commands() {
     { kind: 'Command', label: 'Export checklist (CSV)', icon: 'download', run: exportCsv },
     { kind: 'Command', label: 'Toggle sidebar', keys: '[', icon: 'panel', run: toggleRail },
     { kind: 'Command', label: 'Keyboard shortcuts', keys: '?', icon: 'keyboard', run: () => shortcutsSheet(true) },
+    ...samples,
   ];
 }
 
@@ -200,11 +323,13 @@ document.addEventListener('keydown', (e) => {
   if (mod && (e.key.toLowerCase() === 'k' || e.key.toLowerCase() === 'p')) { e.preventDefault(); $('palette').hidden ? openPalette() : closePalette(); return; }
   if (e.key === 'Escape') {
     if (!$('shortcuts').hidden) { shortcutsSheet(false); return; }
-    if (!$('celebrate').hidden) { $('celebrate').hidden = true; return; }
+    if (!$('celebrate').hidden) { closeCelebrate(); return; }
+    if (!$('postgame').hidden) { closeResult(); return; }
     if (document.body.classList.contains('mini')) { toggleMini(false); return; }
   }
   if (mod || e.altKey || typing(e.target) || !$('palette').hidden) return;
-  if (e.key >= '1' && e.key <= '5') { location.hash = `#/${NAV_ORDER[Number(e.key) - 1]}`; e.preventDefault(); }
+  const view = viewForKey(e.key);
+  if (view) { location.hash = `#/${view}`; e.preventDefault(); }
   else if (e.key === '/') { e.preventDefault(); focusChampionSearch(); }
   else if (e.key === '?') { e.preventDefault(); shortcutsSheet($('shortcuts').hidden); }
   else if (e.key === '[') { e.preventDefault(); toggleRail(); }
@@ -223,6 +348,7 @@ function boot() {
   $('sync-btn').addEventListener('click', () => rescan($('sync-btn')));
   $('shortcuts').addEventListener('mousedown', (e) => { if (e.target === $('shortcuts')) shortcutsSheet(false); });
   $('shortcuts-close').addEventListener('click', () => shortcutsSheet(false));
+  $('celebrate').addEventListener('mousedown', (e) => { if (e.target === $('celebrate')) closeCelebrate(); });
   document.addEventListener('click', (e) => { if (e.target.closest('[data-action="shortcuts"]')) shortcutsSheet(true); });
   initPalette(commands);
   window.addEventListener('hashchange', showRoute);
