@@ -10,6 +10,28 @@ function flash(text, kind = 'ok') {
   window.dispatchEvent(new CustomEvent('ac-toast', { detail: { kind, text } }));
 }
 
+/** Sample-data scenarios (ARENA_COMPANION_FIXTURE only): every redesigned state, without League. */
+export const SAMPLE_SCENARIOS = [
+  ['idle', 'Partial Arena God progress'],
+  ['champselect', 'Champ select · mixed favorites'],
+  ['crowd-needed', 'Crowd Favorites · all needed'],
+  ['crowd-won', 'Crowd Favorites · all won'],
+  ['first-win', 'Post-game · first win'],
+  ['result', 'Post-game · already won'],
+  ['result-needed', 'Post-game · still needed'],
+  ['complete', 'Arena God complete'],
+];
+
+export async function loadScenario(name) {
+  try {
+    await postJson('/api/fixture/scenario', { name });
+    flash(`Sample: ${SAMPLE_SCENARIOS.find(([n]) => n === name)?.[1] ?? name}`);
+  } catch (err) {
+    flash(`Sample not loaded: ${err.message}`, 'error');
+  }
+  await refresh({ force: true });
+}
+
 const sw = (id, label, hint, iconName) => `<label class="setting switch-row" for="${id}">
   <span class="setting-icon">${icon(iconName, 17)}</span>
   <span class="setting-text"><b>${label}</b><small>${hint}</small></span>
@@ -38,6 +60,10 @@ function layout() {
       <div class="setting"><span class="setting-icon">${icon('globe', 17)}</span><span class="setting-text"><b>Arena tracker</b><small>Match history and manual wins come from here.</small></span><code class="value">https://arena.scrolab.com</code></div>
       <div class="setting"><span class="setting-icon">${icon('refresh', 17)}</span><span class="setting-text"><b>Full rescan</b><small>Rebuilds the checklist from your entire match history. Takes a few minutes.</small></span>
         <button id="set-fullscan" class="btn ghost">${icon('refresh', 15)} Full rescan</button></div>
+    </section>
+    <section class="card settings-group" id="set-samples" hidden><h2>${icon('sparkles', 16)} Sample states <span class="fixture-badge">Sample data</span></h2>
+      <p class="settings-note">Synthetic scenarios for checking every screen without League. Each one resets the sample player.</p>
+      <div class="sample-grid">${SAMPLE_SCENARIOS.map(([name, label]) => `<button class="btn ghost sample-btn" data-scenario="${name}">${esc(label)}</button>`).join('')}</div>
     </section>
     <section class="card settings-group"><h2>${icon('info', 16)} About</h2>
       <div class="setting"><span class="setting-icon">${icon('info', 17)}</span><span class="setting-text"><b>Version</b><small id="set-update">Updates install automatically on start and are re-checked every few hours.</small></span><code class="value" id="set-version">–</code></div>
@@ -75,6 +101,10 @@ function bind() {
   $('set-login').addEventListener('change', (e) => saveConfig({ launchAtLogin: e.target.checked }, e.target.checked ? 'Starts with Windows, in the tray.' : "Won't start with Windows."));
   $('set-fullscan').addEventListener('click', () => { flash('Full rescan started — this can take several minutes…'); void rescan($('set-fullscan'), true); });
   $('set-preview').addEventListener('click', () => togglePreview());
+  $('set-samples').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-scenario]');
+    if (btn) void loadScenario(btn.dataset.scenario);
+  });
 }
 
 export async function togglePreview() {
@@ -96,6 +126,9 @@ export function renderSettings(st) {
   const s = st.status;
   if (!s) return;
   const cfg = s.config ?? {};
+  const samples = $('set-samples');
+  samples.hidden = !s.fixture;
+  samples.querySelectorAll('[data-scenario]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scenario === s.fixtureScenario)));
   const preview = s.overlayPreview === true;
   const btn = $('set-preview');
   btn.textContent = preview ? 'Done' : 'Show panel';

@@ -1,75 +1,75 @@
 import { $, esc, changed, art, ordinal, tierOf, relSpan, fmtDate, num, pct, dec, cardById, cardByName, reducedMotion } from '../util.js';
 import { icon } from '../icons.js';
 import { ring, placementBars, trendChart } from '../charts.js';
+import { arenaProgress } from '../progress.js';
 
 let heroCounted = false;
 
 function skeleton() {
-  return `<div class="skel-hero skeleton"></div><div class="tiles">${'<div class="tile skeleton"></div>'.repeat(6)}</div>
+  return `<div class="skel-hero skeleton"></div><div class="tiles">${'<div class="tile skeleton"></div>'.repeat(4)}</div>
     <div class="grid-2"><div class="card skeleton tall"></div><div class="card skeleton tall"></div></div>`;
 }
 
 function hero(s, ins) {
-  const cl = s.checklist;
-  const total = cl?.total ?? 0;
-  const official = s.arenaGod;
-  const count = Math.max(official ?? 0, cl?.wonCount ?? 0);
-  const manual = (s.cards ?? []).filter((c) => c.manual && !c.wins).length;
-  const fromHistory = (cl?.wonCount ?? 0) - manual;
-  const gap = official != null && cl ? official - cl.wonCount : 0;
-  const remaining = Math.max(0, total - count);
+  const p = arenaProgress(s);
   const newestFirstWin = ins?.session?.newWins?.at(-1) ?? null;
   const backdropCard = cardByName(newestFirstWin) ?? cardByName(s.recent?.[0]?.championName) ?? null;
   const pace = ins?.pace;
   let paceLine = '';
-  if (pace?.remaining === 0 || remaining === 0) paceLine = `${icon('crown', 15)}<span>Every champion won. Arena God.</span>`;
+  if (pace?.remaining === 0 || p.complete) paceLine = `${icon('crown', 15)}<span>Every champion won. Arena God.</span>`;
   else if (pace?.projectedGames) paceLine = `${icon('trend', 15)}<span>At your recent pace, about <b>${num(pace.projectedGames)}</b> more games — one new win every ${dec(pace.gamesPerNewWin)} games${pace.windowDays ? ` over the last ${pace.windowDays} days` : ''}.</span>`;
   else if (pace) paceLine = `${icon('trend', 15)}<span>No new champions won recently — the pace estimate returns after your next first win.</span>`;
-  return `<section class="hero card">
+  return `<section class="hero card ${p.complete ? 'complete' : ''}">
     ${backdropCard ? `<div class="hero-backdrop">${art(backdropCard, 'splash')}</div>` : ''}
-    <div class="hero-ring">${ring(count, total)}<div class="hero-ring-label"><span class="hero-count num" id="hero-count">${heroCounted ? count : 0}</span><span class="hero-total num">/ ${total || '–'}</span></div></div>
+    <div class="hero-ring">${ring(p.count, p.total)}<div class="hero-ring-label"><span class="hero-count num" id="hero-count">${heroCounted ? p.count : 0}</span><span class="hero-total num">/ ${p.total || '–'}</span></div></div>
     <div class="hero-body">
       <div class="eyebrow">${icon('crown', 14)} Arena God · Adapt to All Situations</div>
-      <h1 class="hero-title">${remaining === 0 && total ? 'Arena God unlocked' : `<span class="num">${remaining}</span> ${remaining === 1 ? 'champion' : 'champions'} to go`}</h1>
+      <h1 class="hero-title">${p.complete ? 'Arena God unlocked' : `<span class="num">${p.remaining}</span> ${p.remaining === 1 ? 'champion' : 'champions'} to go`}</h1>
       <div class="hero-chips">
-        <span class="stat-chip">${icon('history', 14)}<b class="num">${cl ? fromHistory : '–'}</b> from match history</span>
-        <span class="stat-chip manual">${icon('pencil', 14)}<b class="num">${cl ? manual : '–'}</b> manual</span>
-        ${gap > 0 ? `<span class="stat-chip muted" title="Wins older than Riot's match history retention; mark remembered ones manually.">${icon('info', 14)}<b class="num">${gap}</b> unrecoverable</span>` : ''}
+        <span class="stat-chip">${icon('history', 14)}<b class="num">${p.known ? p.fromHistory : '–'}</b> from match history</span>
+        <span class="stat-chip manual">${icon('pencil', 14)}<b class="num">${p.known ? p.manual : '–'}</b> manual</span>
+        ${p.unrecoverable > 0 ? `<span class="stat-chip muted" title="Wins older than Riot's match history retention; mark remembered ones manually.">${icon('info', 14)}<b class="num">${p.unrecoverable}</b> unrecoverable</span>` : ''}
       </div>
       ${paceLine ? `<p class="hero-pace">${paceLine}</p>` : ''}
     </div>
-    <div class="hero-side">
-      <div class="hero-stat"><div class="label">Official (Riot)</div><div class="hero-stat-value gold num">${official ?? '–'}</div></div>
-      <div class="hero-stat"><div class="label">Provable</div><div class="hero-stat-value num">${cl?.wonCount ?? '–'}</div></div>
-    </div>
+    <dl class="hero-side">
+      <div class="hero-stat"><dt class="label">Official (Riot)</dt><dd class="hero-stat-value gold num">${p.official ?? '–'}</dd></div>
+      <div class="hero-stat"><dt class="label">Provable</dt><dd class="hero-stat-value num">${p.known ? p.provable : '–'}</dd></div>
+    </dl>
   </section>`;
 }
 
-function tile(iconName, label, value, sub, cls = '') {
-  return `<div class="tile ${cls}"><div class="tile-head">${icon(iconName, 16)}<span class="label">${label}</span></div><div class="tile-value num">${value}</div><div class="tile-sub">${sub}</div></div>`;
+function tile(iconName, label, value, sub, { cls = '', href = '' } = {}) {
+  const inner = `<div class="tile-head">${icon(iconName, 16)}<span class="label">${label}</span>${href ? icon('arrowRight', 14, 'tile-go') : ''}</div><div class="tile-value num">${value}</div><div class="tile-sub">${sub}</div>`;
+  return href ? `<a class="tile link-tile ${cls}" href="${href}">${inner}</a>` : `<div class="tile ${cls}">${inner}</div>`;
 }
 
+/** Four numbers for the Arena God grind; streaks and rates live with Form and Placements. */
 function tiles(s, ins, matches) {
-  const owned = (s.cards ?? []).filter((c) => c.owned !== false && !c.won).length;
+  const p = arenaProgress(s);
+  const ownedNeeded = (s.cards ?? []).filter((c) => c.owned !== false && !c.won).length;
   const first = matches?.length ? matches[matches.length - 1].gameEnd : 0;
   return `<div class="tiles">
-    ${tile('layers', 'Games scanned', num(s.checklist?.gamesScanned), first ? `since ${fmtDate(first, true)}` : 'no games yet')}
-    ${tile('trophy', 'Win rate', pct(ins?.winRate), ins ? `${num(ins.wins)} first places` : '&nbsp;', 'gold-tile')}
+    ${tile('sparkles', 'New wins · 30 days', num(ins?.newWins30d), ins ? `${num(ins.newWinsThisWeek)} this week` : '&nbsp;', { cls: 'cyan-tile' })}
+    ${tile('checklist', 'Remaining', p.known ? num(p.remaining) : '–', p.known ? (p.complete ? 'Arena God complete' : `${num(ownedNeeded)} owned, not yet won`) : '&nbsp;', { href: '#/remaining' })}
     ${tile('gauge', 'Avg placement', dec(ins?.avgPlacement), ins?.top4Rate != null ? `top 4 in ${pct(ins.top4Rate)}` : '&nbsp;')}
-    ${tile('flame', 'Win streak', num(ins?.currentWinStreak), ins ? `best ${ins.bestWinStreak} · top-4 run ${ins.currentTop4Streak}` : '&nbsp;')}
-    ${tile('sparkles', 'New this week', num(ins?.newWinsThisWeek), ins ? `${ins.newWins30d} in the last 30 days` : '&nbsp;', 'cyan-tile')}
-    ${tile('target', 'Owned, not won', num(owned), 'ready when you are')}
+    ${tile('layers', 'Games scanned', num(s.checklist?.gamesScanned), first ? `since ${fmtDate(first, true)}` : 'no games yet')}
   </div>`;
 }
 
-function placementsCard(s) {
+function placementsCard(s, ins) {
   const cl = s.checklist;
   const win = cl?.placements?.find((p) => p.placement === 1);
   const last = cl?.placements?.find((p) => p.placement === 8);
+  const scanned = Boolean(cl?.gamesScanned);
   return `<section class="card">
-    <header class="card-head"><div><h2>${icon('award', 16)} Placements</h2><p class="sub">${cl?.gamesScanned ? `Across ${num(cl.gamesScanned)} scanned games` : 'No scanned Arena games yet'}</p></div>
-      <div class="head-stats"><div><div class="label">1st</div><div class="big gold num">${cl?.gamesScanned ? pct(win?.percent) : '–'}</div></div><div><div class="label">8th</div><div class="big coral num">${cl?.gamesScanned ? pct(last?.percent) : '–'}</div></div></div></header>
-    ${cl?.gamesScanned ? placementBars(cl.placements) : '<div class="empty-inline">Run a scan to see how you place.</div>'}
+    <header class="card-head"><div><h2>${icon('award', 16)} Placements</h2><p class="sub">${scanned ? `Across ${num(cl.gamesScanned)} scanned games · ${num(win?.count ?? 0)} first places` : 'No scanned Arena games yet'}</p></div>
+      <div class="head-stats">
+        <div><div class="label">1st</div><div class="big gold num">${scanned ? pct(win?.percent) : '–'}</div></div>
+        <div><div class="label">Top 4</div><div class="big num">${scanned ? pct(ins?.top4Rate) : '–'}</div></div>
+        <div><div class="label">8th</div><div class="big coral num">${scanned ? pct(last?.percent) : '–'}</div></div>
+      </div></header>
+    ${scanned ? placementBars(cl.placements) : '<div class="empty-inline">Run a scan to see how you place.</div>'}
   </section>`;
 }
 
@@ -78,7 +78,11 @@ function trendCard(ins) {
   const recentAvg = trend.length ? trend.slice(-10).reduce((a, b) => a + b, 0) / Math.min(10, trend.length) : null;
   return `<section class="card">
     <header class="card-head"><div><h2>${icon('trend', 16)} Form</h2><p class="sub">Last ${trend.length || ''} games · line is a 5-game average</p></div>
-      <div class="head-stats"><div><div class="label">Last 10 avg</div><div class="big num">${dec(recentAvg)}</div></div></div></header>
+      <div class="head-stats">
+        <div><div class="label">Last 10 avg</div><div class="big num">${dec(recentAvg)}</div></div>
+        <div title="${ins ? `Best run of 1st places: ${ins.bestWinStreak}` : ''}"><div class="label">Win streak</div><div class="big num">${num(ins?.currentWinStreak)}<small class="big-sub">best ${ins ? num(ins.bestWinStreak) : '–'}</small></div></div>
+        <div title="Games in a row placing top 4"><div class="label">Top-4 run</div><div class="big num">${num(ins?.currentTop4Streak)}</div></div>
+      </div></header>
     ${trendChart(trend)}
   </section>`;
 }
@@ -88,7 +92,7 @@ function sessionCard(ins, matches) {
   if (!se) return '';
   const games = (matches ?? []).filter((m) => m.gameEnd >= se.startedAt && m.gameEnd <= se.endedAt).reverse();
   return `<section class="card session">
-    <header class="card-head"><div><h2>${icon('zap', 16)} Latest session</h2><p class="sub">${relSpan(se.startedAt)} → ${relSpan(se.endedAt)}</p></div></header>
+    <header class="card-head"><div><h2>${icon('zap', 16)} Latest session</h2><p class="sub">${relSpan(se.startedAt)} → ${relSpan(se.endedAt)} · <b class="num">${se.newWins.length}</b> new ${se.newWins.length === 1 ? 'win' : 'wins'} / <b class="num">${se.games}</b> ${se.games === 1 ? 'game' : 'games'}</p></div></header>
     <div class="session-stats">
       <div><div class="label">Games</div><div class="big num">${se.games}</div></div>
       <div><div class="label">Avg</div><div class="big num">${dec(se.avgPlacement)}</div></div>
@@ -142,12 +146,14 @@ export function renderDashboard(st) {
   const ins = st.insights;
   const sig = JSON.stringify([s.arenaGod, s.checklist, s.ddragonVersion, s.fixture, (s.cards ?? []).map((c) => `${c.id}${c.won ? 1 : 0}${c.manual ? 1 : 0}${c.owned ? 1 : 0}`).join(), ins, st.matches?.length, st.matches?.[0]?.id]);
   if (!changed(root, sig)) return;
+  // Progress first (hero, the four numbers, what to play next), then how you place.
   root.innerHTML = `${hero(s, ins)}${tiles(s, ins, st.matches)}
-    <div class="grid-2">${placementsCard(s)}${trendCard(ins)}</div>
     ${playNext(ins)}
+    <div class="grid-2">${placementsCard(s, ins)}${trendCard(ins)}</div>
     <div class="grid-2 wide-left">${recentGames(st.matches)}${sessionCard(ins, st.matches) || `<section class="card empty-card"><div class="empty-icon">${icon('zap', 22)}</div><h2>No session right now</h2><p class="sub">Your last few hours of Arena show up here after you play.</p></section>`}</div>`;
   const countEl = document.getElementById('hero-count');
-  const target = s.arenaGod ?? s.checklist?.wonCount;
+  const p = arenaProgress(s);
+  const target = p.known || p.official !== null ? p.count : null; // count up once there is a number
   if (!heroCounted && Number.isFinite(target) && !reducedMotion()) {
     heroCounted = true;
     const start = performance.now();

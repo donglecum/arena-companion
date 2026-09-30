@@ -236,6 +236,24 @@ export function aggregate(store: any, champions: any[], masteries: Record<string
   };
 }
 
+/**
+ * Apply a manual mark (or its removal) to an aggregated checklist in place,
+ * matching the champion by name or ddragon id. A champion stays won while it
+ * has a recorded win. Returns false when the champion is not in the checklist.
+ */
+export function applyManualMark(
+  checklist: { wonCount: number; cards: { id: string; name: string; wins: number; manual: boolean; won: boolean }[] },
+  champion: string,
+  marked: boolean,
+): boolean {
+  const card = checklist.cards.find((c) => c.name === champion || c.id === champion);
+  if (!card) return false;
+  card.manual = marked;
+  card.won = card.wins > 0 || card.manual;
+  checklist.wonCount = checklist.cards.filter((c) => c.won).length;
+  return true;
+}
+
 export interface MatchRow {
   id: string;
   /** ddragon champion id ("MonkeyKing"), or the raw match-v5 name when unknown. */

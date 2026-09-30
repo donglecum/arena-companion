@@ -1,10 +1,12 @@
 import { $, esc, changed, art, chip, statusOf, CLASSES, plural, relSpan, num, dec, pct } from '../util.js';
 import { icon } from '../icons.js';
 import { bar } from '../charts.js';
+import { champCard, cardSkeletons } from '../cards.js';
 import { refresh, postJson } from '../store.js';
 
 const KEY = 'ac.champions';
-const defaults = { filter: 'needed', owned: false, cls: '', played: '', sort: 'name', dir: 1, layout: 'grid' };
+// Every champion by default: the Remaining view is the home of what is still needed.
+const defaults = { filter: 'all', owned: false, cls: '', played: '', sort: 'name', dir: 1, layout: 'grid' };
 export const ui = { ...defaults, search: '' };
 try { Object.assign(ui, JSON.parse(localStorage.getItem(KEY) || '{}'), { search: '' }); } catch { /* defaults */ }
 const save = () => { try { const { search, ...rest } = ui; void search; localStorage.setItem(KEY, JSON.stringify(rest)); } catch { /* per-viewer convenience only */ } };
@@ -113,18 +115,6 @@ export async function rescan(btn, full = false) {
   }
 }
 
-function tileHtml(c) {
-  const st = statusOf(c);
-  return `<a class="champ-tile ${st} ${c.owned === false ? 'unowned' : ''}" href="#/champion/${encodeURIComponent(c.id)}" title="${esc(c.name)} · ${c.games} games · ${c.wins} wins">
-    ${art(c, 'tile', 'tile-art')}
-    <span class="ctile-badge ${st}">${icon(st === 'won' ? 'check' : st === 'manual' ? 'pencil' : 'x', 12)}</span>
-    ${c.owned === false ? `<span class="ctile-lock">${icon('lock', 13)}</span>` : ''}
-    ${c.masteryLevel ? `<span class="ctile-mastery num">M${c.masteryLevel}</span>` : ''}
-    <span class="ctile-name">${esc(c.name)}</span>
-    <span class="ctile-sub num">${c.games}g · ${c.wins}w${c.avgPlacement ? ` · ${dec(c.avgPlacement)}` : ''}</span>
-  </a>`;
-}
-
 function tableHtml(list) {
   const th = (key, label, cls = '') => `<th class="${cls}"><button data-sort="${key}" class="${ui.sort === key ? 'sorted' : ''}">${label}${ui.sort === key ? icon(ui.dir === 1 ? 'chevronRight' : 'chevronLeft', 12, 'sort-ico') : ''}</button></th>`;
   return `<div class="table-wrap card"><table class="champ-table">
@@ -186,7 +176,7 @@ export function renderChampions(st) {
   classes.querySelectorAll('.class-stat').forEach((b) => b.classList.toggle('active', ui.cls === b.dataset.cls));
 
   const results = $('ch-results');
-  if (!st.status) { if (changed(results, 'skel')) results.innerHTML = `<div class="champ-grid">${'<div class="champ-tile skeleton"></div>'.repeat(24)}</div>`; return; }
+  if (!st.status) { if (changed(results, 'skel')) results.innerHTML = cardSkeletons(24); return; }
   const list = filteredCards(cards);
   $('ch-count').textContent = `${list.length} shown`;
   const sig = JSON.stringify([ui, st.status.ddragonVersion, list.map((c) => `${c.id}:${c.won}:${c.manual}:${c.owned}:${c.games}:${c.wins}:${c.masteryLevel}:${c.avgPlacement}`)]);
@@ -195,7 +185,7 @@ export function renderChampions(st) {
     results.innerHTML = `<div class="empty card"><div class="empty-icon">${icon('search', 22)}</div><h2>No champions match</h2><p class="sub">${cards.length ? 'Try another search or clear a filter.' : 'Run a scan to build your checklist.'}</p></div>`;
     return;
   }
-  results.innerHTML = ui.layout === 'list' ? tableHtml(list) : `<div class="champ-grid">${list.map(tileHtml).join('')}</div>`;
+  results.innerHTML = ui.layout === 'list' ? tableHtml(list) : `<div class="champ-grid">${list.map((c) => champCard(c)).join('')}</div>`;
 }
 
 export function focusChampionSearch() {

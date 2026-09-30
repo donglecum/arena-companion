@@ -2,6 +2,7 @@ import { $, esc, changed, art, chip, statusOf, cardById, ordinal, tierOf, relSpa
 import { icon } from '../icons.js';
 import { placementBars, distribution } from '../charts.js';
 import { refresh } from '../store.js';
+import { championRecord, manualAction } from '../progress.js';
 
 let confirmFor = '';
 let confirmTimer = null;
@@ -9,8 +10,7 @@ let busy = false;
 let message = '';
 
 function actionHtml(card) {
-  // Only a manual mark can be removed; a match-history win has nothing to toggle.
-  const action = card.manual ? 'remove' : card.won ? null : 'add';
+  const action = manualAction(card);
   if (!action) return `<div class="note">${icon('check', 14)} Won in match history — no manual mark needed.</div>`;
   const confirming = confirmFor === card.id;
   const label = action === 'remove'
@@ -46,6 +46,56 @@ async function toggle(card) {
   }
 }
 
+/* The personal Arena profile is a list of sections, so later ones (a
+   Match-V5 builds/augments history, say) slot in without reshaping the card. */
+function statsSection(card, rec) {
+  const stat = (label, value, sub = '', cls = '') => `<div class="pstat ${cls}"><dt class="label">${label}</dt><dd><span class="pstat-value num">${value}</span>${sub ? `<small>${sub}</small>` : ''}</dd></div>`;
+  const firstWin = card.firstWinAt ? fmtDate(card.firstWinAt, true) : card.manual ? 'Manual' : card.won ? 'Won' : 'Not yet';
+  // "3d ago" helps for a recent first win; an older one would only repeat the date.
+  const firstWinSub = card.firstWinAt ? (Date.now() - card.firstWinAt < 14 * 24 * 3600_000 ? relSpan(card.firstWinAt) : '') : card.manual ? 'before match history' : '';
+  return `<dl class="pstats">
+    ${stat('Best', rec.best ? ordinal(rec.best) : '—', '', rec.best === 1 ? 'gold' : '')}
+    ${stat('Average', dec(rec.avg))}
+    ${stat('Games', num(rec.games))}
+    ${stat('Top 4', rec.placed ? `${rec.top4}<span class="of"> / ${rec.placed}</span>` : '—')}
+    ${stat('Wins', num(rec.wins), rec.games ? `${pct((rec.wins / rec.games) * 100)} of games` : '')}
+    ${stat('First win', firstWin, firstWinSub, 'text')}
+    ${stat('Last', rec.last?.placement ? ordinal(rec.last.placement) : rec.last ? 'Unplaced' : '—', rec.last ? relSpan(rec.last.gameEnd) : '', rec.last?.placement === 1 ? 'gold' : '')}
+  </dl>`;
+}
+
+function recentSection(rec) {
+  if (!rec.recent.length) return '';
+  return `<div class="precent"><span class="label">Recent</span>
+    <ol class="recent-strip" aria-label="Recent placements, newest first">${rec.recent.map((p, i) => `<li class="place ${tierOf(p)}" title="${i === 0 ? 'Latest game · ' : ''}${ordinal(p)}">${p}</li>`).join('')}</ol>
+    <span class="dim small">newest first</span></div>`;
+}
+
+function placementsSection(games) {
+  const placed = games.filter((m) => m.placement).map((m) => m.placement);
+  if (!placed.length) return '';
+  return `<div class="profile-side"><div class="label">Placements</div>${placementBars(distribution(placed), { compact: true })}</div>`;
+}
+
+function profileCard(card, games) {
+  const rec = championRecord(card, games);
+  if (!rec.games) {
+    return `<section class="card arena-profile">
+      <header class="card-head"><div><h2>${icon('history', 16)} Your Arena history</h2><p class="sub">No Arena games on ${esc(card.name)} yet</p></div></header>
+      <p class="profile-empty">${card.won
+        ? `${icon('pencil', 14)} Marked as won by hand — match history has no games on ${esc(card.name)}.`
+        : `${icon('sparkles', 14)} Your first game shows up here — and a win on ${esc(card.name)} counts toward Arena God.`}</p>
+    </section>`;
+  }
+  return `<section class="card arena-profile">
+    <header class="card-head"><div><h2>${icon('history', 16)} Your Arena history</h2><p class="sub">${num(rec.games)} ${rec.games === 1 ? 'game' : 'games'} on ${esc(card.name)}</p></div></header>
+    <div class="profile-grid">
+      <div class="profile-main">${statsSection(card, rec)}${recentSection(rec)}</div>
+      ${placementsSection(games)}
+    </div>
+  </section>`;
+}
+
 export function renderChampion(st, id) {
   const root = $('view-champion');
   const card = cardById(id);
@@ -55,11 +105,9 @@ export function renderChampion(st, id) {
     return;
   }
   const games = (st.matches ?? []).filter((m) => m.championId === card.id);
-  const sig = JSON.stringify([card, games.length, games[0]?.id, confirmFor, busy, message, st.status.ddragonVersion]);
+  const sig = JSON.stringify([card, games.length, games[0]?.id, Boolean(st.matches), confirmFor, busy, message, st.status.ddragonVersion]);
   if (!changed(root, sig)) return;
   const st8 = statusOf(card);
-  const placed = games.filter((m) => m.placement).map((m) => m.placement);
-  const firstWin = games.find((m) => m.firstWin);
   root.innerHTML = `
     <a class="back-link" href="#/champions">${icon('chevronLeft', 15)} Champions</a>
     <section class="champ-hero card ${st8}">
@@ -77,21 +125,11 @@ export function renderChampion(st, id) {
         </div>
       </div>
     </section>
-    <div class="tiles six">
-      <div class="tile"><div class="tile-head">${icon('layers', 16)}<span class="label">Games</span></div><div class="tile-value num">${card.games}</div><div class="tile-sub">${card.last ? `last ${relSpan(card.last)}` : 'never played in Arena'}</div></div>
-      <div class="tile gold-tile"><div class="tile-head">${icon('trophy', 16)}<span class="label">Wins</span></div><div class="tile-value num">${card.wins}</div><div class="tile-sub">${card.games ? `${pct((card.wins / card.games) * 100)} win rate` : '&nbsp;'}</div></div>
-      <div class="tile"><div class="tile-head">${icon('gauge', 16)}<span class="label">Avg place</span></div><div class="tile-value num">${dec(card.avgPlacement)}</div><div class="tile-sub">${card.games ? `top 4 in ${card.top4} of ${placed.length}` : '&nbsp;'}</div></div>
-      <div class="tile cyan-tile"><div class="tile-head">${icon('sparkles', 16)}<span class="label">First win</span></div><div class="tile-value small">${card.firstWinAt ? fmtDate(card.firstWinAt, true) : card.manual ? 'Manual' : '—'}</div><div class="tile-sub">${firstWin ? relSpan(firstWin.gameEnd) : card.won ? 'before match history' : 'still needed'}</div></div>
-    </div>
-    <div class="grid-2">
-      <section class="card"><header class="card-head"><div><h2>${icon('award', 16)} Placements</h2><p class="sub">${placed.length ? `${placed.length} placed ${placed.length === 1 ? 'game' : 'games'}` : 'No games yet'}</p></div></header>
-        ${placed.length ? placementBars(distribution(placed), { compact: true }) : '<div class="empty-inline">Play this champion in Arena to see placements.</div>'}</section>
-      <section class="card"><header class="card-head"><div><h2>${icon('history', 16)} Arena games</h2></div></header>
-        ${games.length ? `<div class="game-list compact">${games.slice(0, 40).map((m) => `<div class="game-row static">
+    ${st.matches ? profileCard(card, games) : '<div class="card skeleton tall"></div>'}
+    ${games.length ? `<section class="card"><header class="card-head"><div><h2>${icon('layers', 16)} Arena games</h2><p class="sub">${games.length > 40 ? `Latest 40 of ${games.length}` : 'Every game, newest first'}</p></div></header>
+      <div class="game-list compact">${games.slice(0, 40).map((m) => `<div class="game-row static">
           <span class="place ${tierOf(m.placement)}">${m.placement ?? '?'}</span>
           <span class="game-name">${m.placement ? ordinal(m.placement) : 'Unplaced'}${m.firstWin ? `<span class="first-win">${icon('sparkles', 12)} First win</span>` : ''}</span>
-          <span class="game-time" title="${esc(new Date(m.gameEnd).toLocaleString())}">${fmtDate(m.gameEnd)} · ${new Date(m.gameEnd).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span></div>`).join('')}</div>`
-          : '<div class="empty-inline">No Arena games on this champion.</div>'}</section>
-    </div>`;
+          <span class="game-time" title="${esc(new Date(m.gameEnd).toLocaleString())}">${fmtDate(m.gameEnd)} · ${new Date(m.gameEnd).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span></div>`).join('')}</div></section>` : ''}`;
   $('cd-toggle')?.addEventListener('click', () => toggle(card));
 }

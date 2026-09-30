@@ -6,15 +6,15 @@ import { parseLockfile, type Lockfile } from './lockfile.ts';
 import { LcuClient } from './lcu.ts';
 import { makeTrackerApi } from './trackerApi.ts';
 import { fetchChampionsCached } from './ddragon.ts';
-import { aggregate, loadStore, saveStore, update, fullScan, writeFileAtomic, matchList, type MatchRow } from './scan.ts';
+import { aggregate, applyManualMark, loadStore, saveStore, update, fullScan, writeFileAtomic, matchList, type MatchRow } from './scan.ts';
 import { computeInsights } from './insights.ts';
 import { normalizeUpdateStatus, type UpdateStatus } from './updateStatus.ts';
-import { buildFixture, fixtureArt } from './fixture.ts';
+import { fixtureArt, fixtureScenario, isFixtureScenario, type FixtureScenarioName } from './fixture.ts';
 import { REGIONS, regionByLabel, regionFromClient } from './regions.ts';
 import { applyConfigPatch, loadConfig, normalizeConfigPatch, type CompanionConfig } from './config.ts';
 import { isJsonContentType, rejectRequest } from './httpGuard.ts';
 import { isEntryPoint } from './entry.ts';
-import { detectArenaGameEnd, computePostGameEvent, isStale, isArenaQueue } from './postgame.ts';
+import { detectArenaGameEnd, computePostGameEvent, findFinishedGame, postGameStep, wonSnapshot, isStale, isArenaQueue, type PostGameEvent } from './postgame.ts';
 import { LcuSubscriber, type LcuEvent } from './ws.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -67,7 +67,7 @@ const state: {
   matches: MatchRow[];
   scanning: boolean;
   lastScanFailedAt: number | null;
-  lastEvent: unknown | null;
+  lastEvent: PostGameEvent | null;
   config: CompanionConfig;
   queueId: number | null;
   queueGameMode: string | null;
@@ -393,10 +393,6 @@ function loadChampionIndex(): Promise<void> {
   return championIndexLoading;
 }
 
-function wonChampNames(): string[] {
-  return (state.checklist?.cards ?? []).filter((c) => c.won).map((c) => c.name);
-}
-
 async function pollLcu() {
   // Before the first scan has produced a checklist, the startup scan handles identity.
   const keyBefore = state.checklist ? playerKey() : null;
@@ -562,16 +558,45 @@ function neededOwnedCards() {
     .map((c) => ({ name: c.name, masteryPoints: c.masteryPoints, masteryLevel: c.masteryLevel, image: c.image }));
 }
 
+let postGameRun = 0;
+
 async function postGameRescan() {
-  const before = { wonCount: state.checklist?.wonCount ?? 0, wonChampNames: wonChampNames() };
+  const run = ++postGameRun;
+  const leftAt = Date.now();
+  const player = playerKey();
+  const before = wonSnapshot(state.checklist?.cards ?? []);
+  const context = { arenaGodBefore: state.arenaGod, total: state.checklist?.total ?? null };
   const lastPlayed = state.checklist?.recent?.[0]?.championName ?? null;
+  let waitingEvent: PostGameEvent | null = null;
+  // The waiting event stops waiting in place (same `at`, so the UI does not show it again).
+  const stopWaiting = () => {
+    if (waitingEvent && state.lastEvent === waitingEvent) state.lastEvent = { ...waitingEvent, pending: false };
+  };
   console.log('Arena game ended — running incremental rescan');
-  const r = await refreshChecklist(false);
-  state.challengesFetchedAt = 0; // pick up the new Arena God count on the next poll
-  if (r.ok && state.checklist) {
-    const after = { wonCount: state.checklist.wonCount, wonChampNames: wonChampNames() };
-    state.lastEvent = computePostGameEvent(before, after, lastPlayed);
-    console.log(`post-game event: ${JSON.stringify(state.lastEvent)}`);
+  for (let attempt = 0; ; attempt += 1) {
+    const r = await refreshChecklist(false);
+    // A newer game, or another player, owns the post-game moment now.
+    if (run !== postGameRun) return;
+    if (playerKey() !== player) return stopWaiting();
+    state.challengesFetchedAt = 0; // pick up the new Arena God count on the next poll
+    if (!r.ok || !state.checklist) return stopWaiting();
+    const game = findFinishedGame(state.matches, leftAt);
+    // Only match-history wins are new: marking a remembered win while waiting is not a first win.
+    const after = wonSnapshot(state.checklist.cards, before);
+    const event = computePostGameEvent(before, after, lastPlayed, { ...context, game });
+    const step = postGameStep(attempt, Boolean(game) || event.type === 'new-win');
+    if (step.publish === 'final' || step.publish === 'waiting') {
+      state.lastEvent = step.publish === 'waiting' ? (waitingEvent = { ...event, pending: true }) : event;
+      console.log(`post-game event: ${JSON.stringify(state.lastEvent)}`);
+    } else if (step.publish === 'stop-waiting') {
+      console.log('[post-game] the game never reached match history; a later scan will pick it up');
+      stopWaiting();
+    }
+    const delay = step.retryIn;
+    if (delay === null) return;
+    console.log(`[post-game] game not in match history yet; checking again in ${delay / 1000}s`);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    if (run !== postGameRun) return;
   }
 }
 
@@ -686,12 +711,17 @@ function cardsWithOwnership() {
   return (state.checklist?.cards ?? []).map((c) => ({ ...c, owned: owned.size === 0 || owned.has(Number(c.key)) }));
 }
 
-function loadFixture() {
-  const fx = buildFixture(Date.now());
+let fixtureScenarioActive: FixtureScenarioName | null = null;
+
+/** Load the sample player in a scenario (a fresh copy each time, so switching scenarios resets manual marks). */
+function loadFixture(name: string) {
+  const sc = fixtureScenario(name, Date.now());
+  const fx = sc.fixture;
   const masteries = Object.fromEntries(Object.entries(fx.masteries));
   state.checklist = aggregate(fx.store, fx.champions, masteries, fx.manual);
   state.matches = matchList(fx.store, fx.champions);
   indexChampions(fx.champions);
+  for (const c of sc.indexOnly) state.championIndex.set(c.key, { name: c.name, image: c.image });
   state.ddragonVersion = 'fixture';
   state.ownedChampIds = fx.owned;
   state.ownedFetchedAt = Date.now();
@@ -699,17 +729,18 @@ function loadFixture() {
   state.summoner = fx.summoner;
   state.detectedRegion = 'NA';
   state.lcuConnected = true;
-  state.lastSync = new Date(Date.now() - 12 * 60_000).toISOString();
-  state.gameflowPhase = FIXTURE === 'champselect' ? 'ChampSelect' : 'None';
-  if (FIXTURE === 'champselect') {
+  state.lastSync = new Date(Date.now() - (sc.event ? 1 : 12) * 60_000).toISOString();
+  state.gameflowPhase = sc.phase;
+  state.champSelect = { available: false };
+  if (sc.phase === 'ChampSelect') {
     const cards = state.checklist.cards;
-    const needed = neededOwnedCards();
-    const current = cards.find((c) => c.name === needed[2]?.name) ?? cards[0];
-    state.champSelect = { available: true, championId: Number(current.key), championName: current.name, isArena: true, neededOwned: needed };
-    const favorites = [needed[0], needed[5], ...cards.filter((c) => c.won).slice(3, 6)].filter(Boolean);
-    state.crowdFavorites.ids = favorites.map((c) => Number(cards.find((card) => card.name === c.name)?.key)).filter(Boolean);
+    const current = cards.find((c) => c.name === sc.pick) ?? cards[0];
+    state.champSelect = { available: true, championId: Number(current.key), championName: current.name, isArena: true, neededOwned: neededOwnedCards() };
   }
-  console.log(`[fixture] sample data loaded (${state.matches.length} matches, mode ${FIXTURE})`);
+  state.crowdFavorites.ids = sc.crowd;
+  state.lastEvent = sc.event;
+  fixtureScenarioActive = sc.name;
+  console.log(`[fixture] sample data loaded (${state.matches.length} matches, scenario ${sc.name})`);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -791,6 +822,7 @@ const server = http.createServer(async (req, res) => {
         scanning: state.scanning,
         lastEvent: state.lastEvent,
         ddragonVersion: state.ddragonVersion,
+        fixtureScenario: fixtureScenarioActive,
         ownedCount: state.ownedChampIds.length,
         checklist: state.checklist
           ? {
@@ -810,6 +842,14 @@ const server = http.createServer(async (req, res) => {
           options: REGIONS.map((r) => r.label),
         },
       });
+    }
+    if (FIXTURE && url.pathname === '/api/fixture/scenario' && req.method === 'POST') {
+      const body = await readJson();
+      if (!body) return send(415, { error: 'expected a JSON body' });
+      const name = (body.value as { name?: unknown } | null)?.name;
+      if (typeof name !== 'string' || !isFixtureScenario(name)) return send(400, { error: 'unknown scenario' });
+      loadFixture(name);
+      return send(200, { ok: true, scenario: name });
     }
     if (url.pathname === '/api/rescan' && req.method === 'POST') {
       const body = await readJson();
@@ -856,14 +896,7 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'POST') await api.addManualWin(key, champion);
         else await api.removeManualWin(key, champion);
       }
-      if (state.checklist) {
-        const card = state.checklist.cards.find((c) => c.name === champion || c.id === champion);
-        if (card) {
-          card.manual = req.method === 'POST';
-          card.won = card.wins > 0 || card.manual;
-          state.checklist.wonCount = state.checklist.cards.filter((c) => c.won).length;
-        }
-      }
+      if (state.checklist) applyManualMark(state.checklist, champion, req.method === 'POST');
       if (state.crowdFavorites.ids.length) setCrowdFavorites(state.crowdFavorites.ids, 'manual win changed', true);
       return send(200, { ok: true });
     }
@@ -875,7 +908,7 @@ const server = http.createServer(async (req, res) => {
 
 // Tests import the exported helpers without starting the server or LCU sockets.
 if (isEntryPoint(import.meta.url) && FIXTURE) {
-  loadFixture();
+  loadFixture(FIXTURE);
   server.listen(PORT, '127.0.0.1', () => console.log(`Arena Companion UI (sample data): http://localhost:${PORT}`));
 } else if (isEntryPoint(import.meta.url)) {
   const crowdFavoritesWs = new LcuSubscriber({
