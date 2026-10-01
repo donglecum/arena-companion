@@ -32,43 +32,42 @@ export async function loadScenario(name) {
   await refresh({ force: true });
 }
 
-const sw = (id, label, hint, iconName) => `<label class="setting switch-row" for="${id}">
-  <span class="setting-icon">${icon(iconName, 17)}</span>
+const sw = (id, label, hint) => `<label class="setting switch-row" for="${id}">
   <span class="setting-text"><b>${label}</b><small>${hint}</small></span>
   <span class="switch"><input type="checkbox" id="${id}" role="switch"><span class="switch-track"><span class="switch-thumb"></span></span></span></label>`;
 
 function layout() {
-  return `<div class="page-head"><div><div class="eyebrow">${icon('settings', 14)} Settings</div><h1 class="page-title">Preferences</h1></div></div>
+  return `<div class="page-head"><h1 class="page-title">Settings</h1></div>
   <div class="settings">
-    <section class="card settings-group"><h2>${icon('user', 16)} Account &amp; region</h2>
-      <div class="setting"><span class="setting-icon">${icon('user', 17)}</span><span class="setting-text"><b>Riot ID</b><small id="set-player-cur">Leave empty to follow the account logged into League.</small></span>
-        <input id="set-riotid" placeholder="Name#TAG — auto-detect" aria-label="Riot ID override"></div>
-      <div class="setting"><span class="setting-icon">${icon('globe', 17)}</span><span class="setting-text"><b>Region</b><small>Detected from the client unless pinned here.</small></span>
+    <section class="card settings-group"><h2>Account &amp; region</h2>
+      <div class="setting"><span class="setting-text"><b>Riot ID</b><small id="set-player-cur">Leave empty to follow the account logged into League.</small></span>
+        <input id="set-riotid" placeholder="Name#TAG (auto-detect)" aria-label="Riot ID override"></div>
+      <div class="setting"><span class="setting-text"><b>Region</b><small>Detected from the client unless pinned here.</small></span>
         <select id="set-region" aria-label="Region"></select></div>
       <div class="settings-actions"><button id="set-save" class="btn primary">Save account</button></div>
     </section>
-    <section class="card settings-group"><h2>${icon('sparkles', 16)} Behavior</h2>
-      ${sw('set-mini', 'Mini mode in champ select', 'The Champ Select view starts as a compact card.', 'minimize')}
-      ${sw('set-login', 'Start with Windows', 'Opens in the tray when you sign in, so Crowd Favorites is ready for champ select.', 'zap')}
-      ${sw('set-ontop', 'Always on top', 'Keep the main window above other windows (also in the tray menu).', 'pin')}
+    <section class="card settings-group"><h2>Behavior</h2>
+      ${sw('set-mini', 'Mini mode in champ select', 'The Champ Select view starts as a compact card.')}
+      ${sw('set-login', 'Start with Windows', 'Opens in the tray when you sign in, so Crowd Favorites is ready for champ select.')}
+      ${sw('set-ontop', 'Always on top', 'Keep the main window above other windows (also in the tray menu).')}
     </section>
-    <section class="card settings-group"><h2>${icon('crown', 16)} Overlay · Crowd Favorites</h2>
-      <div class="setting"><span class="setting-icon">${icon('eye', 17)}</span><span class="setting-text"><b>Panel position</b><small id="overlay-msg">Show a sample panel, drag it beside League, then press Done.</small></span>
+    <section class="card settings-group"><h2>Crowd Favorites panel</h2>
+      <div class="setting"><span class="setting-text"><b>Panel position</b><small id="overlay-msg">Show a sample panel, drag it beside League, then press Done.</small></span>
         <button id="set-preview" class="btn ghost">Show panel</button></div>
     </section>
-    <section class="card settings-group"><h2>${icon('layers', 16)} Data &amp; scanning</h2>
-      <div class="setting"><span class="setting-icon">${icon('globe', 17)}</span><span class="setting-text"><b>Arena tracker</b><small>Match history and manual wins come from here.</small></span><code class="value">https://arena.scrolab.com</code></div>
-      <div class="setting"><span class="setting-icon">${icon('refresh', 17)}</span><span class="setting-text"><b>Full rescan</b><small>Rebuilds the checklist from your entire match history. Takes a few minutes.</small></span>
+    <section class="card settings-group"><h2>Data &amp; scanning</h2>
+      <div class="setting"><span class="setting-text"><b>Arena tracker</b><small>Match history and manual wins come from here.</small></span><code class="value">https://arena.scrolab.com</code></div>
+      <div class="setting"><span class="setting-text"><b>Full rescan</b><small>Rebuilds the checklist from your entire match history. Takes a few minutes.</small></span>
         <button id="set-fullscan" class="btn ghost">${icon('refresh', 15)} Full rescan</button></div>
     </section>
-    <section class="card settings-group" id="set-samples" hidden><h2>${icon('sparkles', 16)} Sample states <span class="fixture-badge">Sample data</span></h2>
+    <section class="card settings-group" id="set-samples" hidden><h2>Sample states <span class="fixture-badge">Sample data</span></h2>
       <p class="settings-note">Synthetic scenarios for checking every screen without League. Each one resets the sample player.</p>
       <div class="sample-grid">${SAMPLE_SCENARIOS.map(([name, label]) => `<button class="btn ghost sample-btn" data-scenario="${name}">${esc(label)}</button>`).join('')}</div>
     </section>
-    <section class="card settings-group"><h2>${icon('info', 16)} About</h2>
-      <div class="setting"><span class="setting-icon">${icon('info', 17)}</span><span class="setting-text"><b>Version</b><small id="set-update">Updates install automatically on start and are re-checked every few hours.</small></span><code class="value" id="set-version">–</code></div>
-      <div class="setting"><span class="setting-icon">${icon('folder', 17)}</span><span class="setting-text"><b>Data folder</b><small>Config and match cache. Survives updates.</small></span><code class="value path" id="set-data">–</code></div>
-      <div class="setting"><span class="setting-icon">${icon('keyboard', 17)}</span><span class="setting-text"><b>Keyboard shortcuts</b><small>Ctrl+K opens the command palette.</small></span><button class="btn ghost" data-action="shortcuts">Show shortcuts</button></div>
+    <section class="card settings-group"><h2>About</h2>
+      <div class="setting"><span class="setting-text"><b>Version</b><small id="set-update">Updates install automatically on start and are re-checked every few hours.</small></span><code class="value" id="set-version">–</code></div>
+      <div class="setting"><span class="setting-text"><b>Data folder</b><small>Config and match cache. Survives updates.</small></span><code class="value path" id="set-data">–</code></div>
+      <div class="setting"><span class="setting-text"><b>Keyboard shortcuts</b><small>Ctrl+K opens the command palette.</small></span><button class="btn ghost" data-action="shortcuts">Show shortcuts</button></div>
     </section>
   </div>`;
 }
@@ -99,7 +98,7 @@ function bind() {
   $('set-mini').addEventListener('change', (e) => saveConfig({ miniMode: e.target.checked }));
   $('set-ontop').addEventListener('change', (e) => saveConfig({ alwaysOnTop: e.target.checked }));
   $('set-login').addEventListener('change', (e) => saveConfig({ launchAtLogin: e.target.checked }, e.target.checked ? 'Starts with Windows, in the tray.' : "Won't start with Windows."));
-  $('set-fullscan').addEventListener('click', () => { flash('Full rescan started — this can take several minutes…'); void rescan($('set-fullscan'), true); });
+  $('set-fullscan').addEventListener('click', () => { flash('Full rescan started. This can take a few minutes.'); void rescan($('set-fullscan'), true); });
   $('set-preview').addEventListener('click', () => togglePreview());
   $('set-samples').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-scenario]');
@@ -115,7 +114,7 @@ export async function togglePreview() {
     if (res?.enabled !== next) throw new Error('unexpected response');
     previewError = '';
   } catch {
-    previewError = 'Panel toggle failed — the backend did not accept it.';
+    previewError = 'Panel toggle failed. The backend did not accept it.';
   }
   await refresh({ force: true });
 }
@@ -139,11 +138,11 @@ export function renderSettings(st) {
     : 'Show a sample panel, drag it beside League, then press Done.');
   const who = s.summoner?.gameName ? `${s.summoner.gameName}#${s.summoner.tagLine}` : '';
   $('set-player-cur').textContent = cfg.gameName ? 'Pinned. Clear it to follow the account logged into League.' : `Following the League client${who ? ` (${who})` : ''}.`;
-  $('set-riotid').placeholder = who ? `${who} — from the client` : 'Name#TAG';
+  $('set-riotid').placeholder = who ? `${who} (from the client)` : 'Name#TAG';
   const sel = $('set-region');
   const region = s.region;
   if (region) {
-    const autoLabel = `Auto-detect${region.detected ? ` (${region.detected})` : ' (client not detected — NA)'}`;
+    const autoLabel = `Auto-detect${region.detected ? ` (${region.detected})` : ' (client not detected, NA)'}`;
     if (changed(sel, autoLabel + region.options.join())) {
       sel.innerHTML = `<option value="">${esc(autoLabel)}</option>${region.options.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}`;
       delete sel.dataset.synced;
@@ -160,7 +159,7 @@ export function renderSettings(st) {
   $('set-version').textContent = s.app?.version ? `v${s.app.version}${s.fixture ? ' · sample data' : ''}` : '–';
   $('set-data').textContent = s.app?.dataDir ?? '–';
   const u = s.update;
-  $('set-update').textContent = u?.state === 'downloading' ? `Downloading v${u.version} (${u.percent ?? 0}%) — it installs automatically.`
+  $('set-update').textContent = u?.state === 'downloading' ? `Downloading v${u.version} (${u.percent ?? 0}%). It installs automatically.`
     : u?.state === 'ready' ? `v${u.version} is downloaded and installs once you're out of champ select and games.`
     : u?.state === 'restarting' ? `Restarting to install v${u.version}…`
     : 'Up to date as of the last check. Updates install automatically on start and are re-checked every few hours.';

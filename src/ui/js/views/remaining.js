@@ -15,12 +15,12 @@ const save = () => { try { const { search, ...rest } = ui; void search; localSto
 const groupName = (cls) => (cls === 'Other' ? 'Other' : plural(cls));
 
 function layout() {
-  return `<section id="rm-head" class="card rm-head"></section>
+  return `<section id="rm-head" class="rm-head"></section>
     <div id="rm-classes" class="class-progress rm-classes" role="group" aria-label="Filter by class"></div>
-    <div class="toolbar card rm-toolbar">
+    <div class="toolbar rm-toolbar">
       <label class="search-field">${icon('search', 16)}<input id="rm-search" type="search" placeholder="Search remaining champions…" aria-label="Search remaining champions"></label>
       <label class="rm-sort"><span class="label">Sort</span><select id="rm-sort" aria-label="Sort">${REMAINING_SORTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
-      <button id="rm-clear" class="btn ghost small-btn" hidden>${icon('x', 14)} Clear filters</button>
+      <button id="rm-clear" class="btn ghost small-btn" hidden>Clear filters</button>
       <span class="toolbar-spacer"></span>
       <span id="rm-count" class="dim num"></span>
     </div>
@@ -43,18 +43,19 @@ function headHtml(p, s) {
   const filters = s.left ? `<div class="rm-stats" role="group" aria-label="Filter remaining champions">
         ${statButton('kind', 'never', s.never, 'Never played', 'No Arena games on these yet')}
         ${statButton('kind', 'attempted', s.attempted, 'Played, no win', 'Played in Arena, never 1st')}
+        <span class="rm-divider" aria-hidden="true"></span>
         ${statButton('own', 'owned', s.owned, 'Owned', 'Ready to play now')}
         ${statButton('own', 'locked', s.locked, 'Not owned', 'Unlock these to play them')}
       </div>` : '';
   // Riot counts wins older than match history; those champions are somewhere in this list.
-  const note = p.unrecoverable > 0 && s.left > 0
-    ? `<p class="rm-note">${icon('info', 14)}<span>Riot counts <b class="num">${p.unrecoverable}</b> more ${p.unrecoverable === 1 ? 'win' : 'wins'} than your match history shows, so <b class="num">${s.left}</b> champions here have no recorded win — ${p.unrecoverable} of them were won before match history. Mark the ones you remember on their pages.</span></p>`
+  const u = p.unrecoverable;
+  const note = u > 0 && s.left > 0
+    ? `<p class="rm-note">Riot counts <b class="num">${u}</b> ${u === 1 ? 'win' : 'wins'} that match history no longer shows, so <b class="num">${u}</b> of these <b class="num">${s.left}</b> ${u === 1 ? 'is' : 'are'} already won. Mark the ones you remember on their pages.</p>`
     : '';
   return `<div class="rm-hero">
       <div class="rm-hero-main">
-        <div class="eyebrow">${icon('checklist', 14)} Remaining · Arena God</div>
         <h1 class="rm-title">${title}</h1>
-        <div class="rm-progress">${bar(p.count, p.total, p.complete ? 'wide gold' : 'wide')}<span class="dim num">${p.count} / ${p.total || '–'} won</span></div>
+        <div class="rm-progress">${bar(p.count, p.total, p.complete ? 'wide gold' : 'wide')}<span class="dim num">${p.count} of ${p.total || '–'} won</span></div>
       </div>
       ${filters}
     </div>${note}`;
@@ -65,29 +66,29 @@ function classesHtml(summary) {
     const active = ui.cls === g.cls;
     return `<button class="class-stat ${active ? 'active' : ''} ${g.left ? '' : 'done'}" data-cls="${esc(g.cls)}" aria-pressed="${active}" title="${esc(`${groupName(g.cls)}: ${g.left} left of ${g.total}`)}">
       <span class="class-name">${esc(groupName(g.cls))}</span>
-      <span class="class-count num">${g.left ? `${g.left} left` : `${icon('check', 12)} done`}</span>
+      <span class="class-count num">${g.left ? `${g.left} left` : 'all won'}</span>
       ${bar(g.won, g.total)}</button>`;
   }).join('');
 }
 
 function completeHtml(p, s) {
-  return `<div class="card rm-complete">
-    <div class="rm-crown">${icon('crown', 34)}</div>
+  return `<div class="rm-complete">
+    <div class="rm-crown">${icon('crown', 30)}</div>
     <h2>Arena God</h2>
-    <p>Every one of the <b class="num">${p.total}</b> champions has a first-place win. Adapt to All Situations — complete.</p>
-    ${s.left ? `<p class="sub">${s.left} ${s.left === 1 ? 'champion has' : 'champions have'} no win in your match history — Riot already counts ${s.left === 1 ? 'it' : 'them'}.</p>` : ''}
+    <p>All <b class="num">${p.total}</b> champions have a first-place win.</p>
+    ${s.left ? `<p class="sub">${s.left} ${s.left === 1 ? 'champion has' : 'champions have'} no win in your match history. Riot already counts ${s.left === 1 ? 'it' : 'them'}.</p>` : ''}
   </div>`;
 }
 
 function resultsHtml(p, s, st) {
-  if (!p.known) return `<div class="empty card"><div class="empty-icon">${icon('checklist', 22)}</div><h2>No checklist yet</h2><p class="sub">Run a scan to see which champions you still need.</p></div>`;
+  if (!p.known) return '<div class="empty"><h2>No checklist yet</h2><p class="sub">Run a scan to see which champions you still need.</p></div>';
   const list = sortRemaining(filterRemaining(s.items, ui), ui.sort);
   $('rm-count').textContent = `${list.length} shown`;
   const complete = p.complete || s.left === 0 ? completeHtml(p, s) : '';
   if (!list.length) {
     if (complete) return complete;
-    return `<div class="empty card"><div class="empty-icon">${icon('search', 22)}</div><h2>No champions match</h2><p class="sub">Try another search, or clear a filter.</p>
-      <button class="btn ghost" data-action="rm-clear">${icon('x', 14)} Clear filters</button></div>`;
+    return `<div class="empty"><h2>No champions match</h2><p class="sub">Try another search, or clear a filter.</p>
+      <button class="btn ghost" data-action="rm-clear">Clear filters</button></div>`;
   }
   const order = [...CLASSES, ...s.byClass.map((g) => g.cls).filter((c) => !CLASSES.includes(c))];
   const groups = groupByClass(list, order).map((g) => {
@@ -95,7 +96,7 @@ function resultsHtml(p, s, st) {
     return `<section class="rm-group" aria-labelledby="rm-g-${esc(g.cls)}">
       <header class="rm-group-head"><h2 id="rm-g-${esc(g.cls)}">${esc(groupName(g.cls))}</h2>
         <span class="rm-group-count num">${cls.left} left</span>
-        <span class="rm-group-sub num">${g.items.length !== cls.left ? `${g.items.length} shown · ` : ''}${cls.won} of ${cls.total} won</span></header>
+        <span class="rm-group-sub num">${g.items.length !== cls.left ? `${g.items.length} shown, ` : ''}${cls.won} of ${cls.total} won</span></header>
       <div class="champ-grid">${g.items.map((i) => champCard(i.card, { line: closestLine(i.card, i.best) })).join('')}</div>
     </section>`;
   }).join('');

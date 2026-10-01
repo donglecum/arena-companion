@@ -62,7 +62,7 @@ function renderChrome() {
   const sync = $('sync-text');
   sync.textContent = s?.scanning ? 'Scanning…' : s?.lastSync ? `Synced ${relTime(Date.parse(s.lastSync))}` : 'Not synced';
   $('sync-pill').classList.toggle('stale', Boolean(s?.stale));
-  $('sync-pill').title = s?.lastSync ? `Last sync ${new Date(s.lastSync).toLocaleString()}${s.stale ? ' — older than a day' : ''}` : 'No scan yet';
+  $('sync-pill').title = s?.lastSync ? `Last sync ${new Date(s.lastSync).toLocaleString()}${s.stale ? ' (older than a day)' : ''}` : 'No scan yet';
   $('sync-btn').classList.toggle('spinning', Boolean(s?.scanning));
 
   const who = s?.summoner?.gameName ? `${s.summoner.gameName}#${s.summoner.tagLine}` : s?.player?.split(':')[1] ?? 'No player';
@@ -84,8 +84,8 @@ function renderUpdateNote(update) {
   if (el.dataset.sig === sig) return;
   el.dataset.sig = sig;
   el.className = `update-note ${update.state}`;
-  el.title = `${text.title} — ${text.sub}`;
-  el.innerHTML = `<span class="update-icon">${icon(update.state === 'downloading' ? 'download' : update.state === 'ready' ? 'sparkles' : 'refresh', 16, update.state === 'restarting' ? 'spin' : '')}</span>
+  el.title = `${text.title}: ${text.sub}`;
+  el.innerHTML = `<span class="update-icon">${icon(update.state === 'downloading' ? 'download' : update.state === 'ready' ? 'check' : 'refresh', 16, update.state === 'restarting' ? 'spin' : '')}</span>
     <span class="update-text"><b>${esc(text.title)}</b><small>${esc(text.sub)}</small>
     ${update.state === 'downloading' ? `<span class="bar"><span class="bar-fill" style="width:${update.percent ?? 0}%"></span></span>` : ''}</span>`;
 }
@@ -119,7 +119,7 @@ let toastTimer = null;
 function toast(text, kind = 'ok', ms = 3500) {
   const el = $('toast');
   el.className = `toast ${kind}`;
-  el.innerHTML = `${icon(kind === 'error' ? 'info' : kind === 'win' ? 'sparkles' : 'check', 16)}<span>${esc(text)}</span>`;
+  el.innerHTML = `${icon(kind === 'error' ? 'info' : 'check', 16)}<span>${esc(text)}</span>`;
   el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, ms);
@@ -173,9 +173,9 @@ function celebrationProgress(ev) {
        <div class="cel-count num"><span class="cel-from">${p.before}</span>${icon('arrowRight', 18, 'cel-arrow')}<b class="cel-to">${p.after}</b></div>`
     // Riot counts older wins match history cannot place, so this may be one it already had.
     : `<div class="cel-label">Arena God</div>
-       <div class="cel-count num"><b class="cel-to plain">${arenaProgress(s).count}</b><span class="cel-of">/ ${total || '–'}</span></div>`;
+       <div class="cel-count num"><b class="cel-to plain">${arenaProgress(s).count}</b><span class="cel-of">of ${total || '–'}</span></div>`;
   const left = remaining === 0 && total
-    ? `<div class="cel-left done">${icon('crown', 15)} Every champion won — Arena God</div>`
+    ? '<div class="cel-left done">Every champion won. Arena God.</div>'
     : `<div class="cel-left"><b class="num">${remaining}</b> ${remaining === 1 ? 'champion' : 'champions'} left</div>`;
   return step + left;
 }
@@ -191,12 +191,12 @@ function celebrate(ev) {
   el.innerHTML = `<div class="celebrate-card" role="dialog" aria-modal="true" aria-labelledby="cel-name" aria-describedby="cel-progress">
     <div class="cel-art">${card ? art(card, 'splash') : ''}</div>
     <div class="celebrate-body">
-      <div class="cel-eyebrow">${icon('sparkles', 14)} First win</div>
+      <div class="cel-eyebrow">First win</div>
       <h2 id="cel-name">${esc(name)}</h2>
-      <div class="cel-place">${icon('trophy', 14)} 1st place</div>
+      <div class="cel-place">1st place</div>
       <div class="cel-progress" id="cel-progress">${celebrationProgress(ev)}</div>
       ${others.length ? `<p class="cel-also">Also new: ${others.map(esc).join(', ')}</p>` : ''}
-      <button class="btn primary" id="celebrate-ok">Nice</button>
+      <button class="btn primary" id="celebrate-ok">Close</button>
     </div>
   </div>`;
   el.hidden = false;
@@ -229,20 +229,20 @@ function showResult(ev) {
   const r = postGameResult(ev, state.status, state.insights);
   if (!r) return;
   const card = cardById(r.championId) ?? { id: r.championId, name: r.name };
-  const [verdictIcon, verdictText] = {
-    'already-won': ['check', 'Already won · no change'],
-    'still-needed': ['target', r.placement === 2 ? 'Still needed · one place short' : 'Still needed'],
-    'first-win': ['sparkles', 'First win'],
-    unknown: ['info', 'Not in your checklist yet'],
+  const verdictText = {
+    'already-won': 'Already won, no change',
+    'still-needed': r.placement === 2 ? 'Still needed, one place short' : 'Still needed',
+    'first-win': 'First win',
+    unknown: 'Not in your checklist yet',
   }[r.verdict];
   const session = r.session
-    ? `<div class="result-meta">Latest session: <b class="num">${r.session.newWins}</b> new ${r.session.newWins === 1 ? 'win' : 'wins'} / <b class="num">${r.session.games}</b> ${r.session.games === 1 ? 'game' : 'games'}</div>` : '';
+    ? `<div class="result-meta">This session: <b class="num">${r.session.newWins}</b> new ${r.session.newWins === 1 ? 'win' : 'wins'} in <b class="num">${r.session.games}</b> ${r.session.games === 1 ? 'game' : 'games'}</div>` : '';
   const el = $('postgame');
   el.innerHTML = `<div class="result-card ${r.verdict}" role="status">
     <a class="result-art" href="#/champion/${encodeURIComponent(card.id)}" tabindex="-1" aria-hidden="true">${art(card, 'tile')}</a>
     <div class="result-body">
       <div class="result-title"><span class="result-place ${tierOf(r.placement)}">${r.placement ? ordinal(r.placement) : 'Unplaced'}</span><span class="dot-sep">·</span><a href="#/champion/${encodeURIComponent(card.id)}">${esc(r.name)}</a></div>
-      <div class="result-verdict">${icon(verdictIcon, 13)}${verdictText}</div>
+      <div class="result-verdict">${verdictText}</div>
       <div class="result-meta"><b class="num">${r.remaining}</b> ${r.remaining === 1 ? 'champion' : 'champions'} remaining</div>
       ${session}
     </div>
@@ -267,7 +267,7 @@ function closeResult() {
 /* ---------- commands & shortcuts ---------- */
 function exportCsv() {
   const cards = state.status?.cards ?? [];
-  if (!cards.length) { toast('Nothing to export yet — run a scan first.', 'error'); return; }
+  if (!cards.length) { toast('Nothing to export yet. Run a scan first.', 'error'); return; }
   const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = [['Champion', 'Status', 'Owned', 'Classes', 'Arena games', 'Wins', 'Avg placement', 'Top 4', 'First win', 'Mastery level', 'Mastery points']]
     .concat(cards.map((c) => [c.name, statusOf(c), c.owned === false ? 'no' : 'yes', (c.tags ?? []).join('/'), c.games, c.wins, c.avgPlacement ?? '', c.top4 ?? '', c.firstWinAt ? new Date(c.firstWinAt).toISOString().slice(0, 10) : '', c.masteryLevel, c.masteryPoints]));
@@ -299,12 +299,12 @@ function shortcutsSheet(show = true) {
 function commands() {
   const go = ({ view, title, key, icon: iconName }) => ({ kind: 'Go to', label: title, keys: key, icon: iconName, run: () => { location.hash = `#/${view}`; } });
   const samples = state.status?.fixture
-    ? SAMPLE_SCENARIOS.map(([name, label]) => ({ kind: 'Sample', label: `Sample: ${label}`, hint: 'Synthetic data', icon: 'sparkles', run: () => loadScenario(name) }))
+    ? SAMPLE_SCENARIOS.map(([name, label]) => ({ kind: 'Sample', label: `Sample: ${label}`, hint: 'Synthetic data', icon: 'layers', run: () => loadScenario(name) }))
     : [];
   return [
     ...NAV.map(go),
     { kind: 'Command', label: 'Update scan', icon: 'refresh', run: () => rescan($('sync-btn')) },
-    { kind: 'Command', label: 'Full rescan', hint: 'Rebuild from all match history', icon: 'refresh', run: () => { toast('Full rescan started — this can take several minutes…'); void rescan($('sync-btn'), true); } },
+    { kind: 'Command', label: 'Full rescan', hint: 'Rebuild from all match history', icon: 'refresh', run: () => { toast('Full rescan started. This can take a few minutes.'); void rescan($('sync-btn'), true); } },
     { kind: 'Command', label: 'Search champions', keys: '/', icon: 'search', run: focusChampionSearch },
     { kind: 'Command', label: 'Toggle mini mode', icon: 'minimize', run: () => { location.hash = '#/champselect'; setTimeout(() => toggleMini(), 0); } },
     { kind: 'Command', label: 'Toggle always on top', icon: 'pin', run: toggleOnTop },

@@ -54,10 +54,10 @@ export function filteredCards(cards) {
 function toolbar() {
   const pill = (group, value, label) => `<button class="pill-btn" data-group="${group}" data-value="${value}">${label}</button>`;
   return `<div class="champ-header">
-      <div><div class="eyebrow">${icon('swords', 14)} Champions</div><h1 class="page-title"><span class="num" id="ch-won">–</span> <span class="dim">/ <span class="num" id="ch-total">–</span> won</span></h1></div>
+      <h1 class="page-title"><span class="num" id="ch-won">–</span> <span class="dim">of <span class="num" id="ch-total">–</span> won</span></h1>
       <div id="ch-classes" class="class-progress"></div>
     </div>
-    <div class="toolbar card">
+    <div class="toolbar">
       <label class="search-field">${icon('search', 16)}<input id="ch-search" type="search" placeholder="Search champions…" aria-label="Search champions"><kbd>/</kbd></label>
       <div class="pill-group" role="group" aria-label="Status">${pill('filter', 'needed', 'Needed')}${pill('filter', 'all', 'All')}${pill('filter', 'won', 'Won')}${pill('filter', 'manual', 'Manual')}</div>
       <div class="pill-group" role="group" aria-label="Class">${pill('cls', '', 'All classes')}${CLASSES.map((c) => pill('cls', c, plural(c))).join('')}</div>
@@ -182,7 +182,7 @@ export function renderChampions(st) {
   const sig = JSON.stringify([ui, st.status.ddragonVersion, list.map((c) => `${c.id}:${c.won}:${c.manual}:${c.owned}:${c.games}:${c.wins}:${c.masteryLevel}:${c.avgPlacement}`)]);
   if (!changed(results, sig)) return;
   if (!list.length) {
-    results.innerHTML = `<div class="empty card"><div class="empty-icon">${icon('search', 22)}</div><h2>No champions match</h2><p class="sub">${cards.length ? 'Try another search or clear a filter.' : 'Run a scan to build your checklist.'}</p></div>`;
+    results.innerHTML = `<div class="empty"><h2>No champions match</h2><p class="sub">${cards.length ? 'Try another search, or clear a filter.' : 'Run a scan to build your checklist.'}</p></div>`;
     return;
   }
   results.innerHTML = ui.layout === 'list' ? tableHtml(list) : `<div class="champ-grid">${list.map((c) => champCard(c)).join('')}</div>`;

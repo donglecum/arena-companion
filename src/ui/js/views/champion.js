@@ -11,12 +11,12 @@ let message = '';
 
 function actionHtml(card) {
   const action = manualAction(card);
-  if (!action) return `<div class="note">${icon('check', 14)} Won in match history — no manual mark needed.</div>`;
+  if (!action) return '<div class="note">Won in match history.</div>';
   const confirming = confirmFor === card.id;
   const label = action === 'remove'
     ? (confirming ? 'Click again to remove the mark' : 'Remove manual mark')
-    : (confirming ? 'Click again to confirm' : 'Mark as won (manual)');
-  return `<button id="cd-toggle" class="btn ${action === 'remove' ? 'ghost danger' : 'primary'} ${confirming ? 'confirming' : ''}" ${busy ? 'disabled' : ''}>${icon(action === 'remove' ? 'x' : 'pencil', 15)} ${label}</button>
+    : (confirming ? 'Click again to confirm' : 'Mark as won');
+  return `<button id="cd-toggle" class="btn ${action === 'remove' ? 'ghost danger' : 'primary'} ${confirming ? 'confirming' : ''}" ${busy ? 'disabled' : ''}>${label}</button>
     <span class="dim small">${action === 'add' ? 'For wins older than match history. Saved to arena-tracker.' : 'Marked by hand.'}</span>`;
 }
 
@@ -80,15 +80,15 @@ function placementsSection(games) {
 function profileCard(card, games) {
   const rec = championRecord(card, games);
   if (!rec.games) {
-    return `<section class="card arena-profile">
-      <header class="card-head"><div><h2>${icon('history', 16)} Your Arena history</h2><p class="sub">No Arena games on ${esc(card.name)} yet</p></div></header>
+    return `<section class="section arena-profile">
+      <header class="section-head"><h2>Your Arena history</h2></header>
       <p class="profile-empty">${card.won
-        ? `${icon('pencil', 14)} Marked as won by hand — match history has no games on ${esc(card.name)}.`
-        : `${icon('sparkles', 14)} Your first game shows up here — and a win on ${esc(card.name)} counts toward Arena God.`}</p>
+        ? `Marked as won by hand. Match history has no games on ${esc(card.name)}.`
+        : `No Arena games on ${esc(card.name)} yet. A first place counts toward Arena God.`}</p>
     </section>`;
   }
-  return `<section class="card arena-profile">
-    <header class="card-head"><div><h2>${icon('history', 16)} Your Arena history</h2><p class="sub">${num(rec.games)} ${rec.games === 1 ? 'game' : 'games'} on ${esc(card.name)}</p></div></header>
+  return `<section class="section arena-profile">
+    <header class="section-head"><div><h2>Your Arena history</h2><p class="sub">${num(rec.games)} ${rec.games === 1 ? 'game' : 'games'} on ${esc(card.name)}</p></div></header>
     <div class="profile-grid">
       <div class="profile-main">${statsSection(card, rec)}${recentSection(rec)}</div>
       ${placementsSection(games)}
@@ -101,7 +101,7 @@ export function renderChampion(st, id) {
   const card = cardById(id);
   if (!st.status) { if (changed(root, 'skel')) root.innerHTML = '<div class="skel-hero skeleton"></div>'; return; }
   if (!card) {
-    if (changed(root, `missing:${id}`)) root.innerHTML = `<div class="empty card"><div class="empty-icon">${icon('search', 22)}</div><h2>Champion not found</h2><p class="sub">${esc(id)} isn't in the checklist yet.</p><a class="btn ghost" href="#/champions">${icon('chevronLeft', 15)} All champions</a></div>`;
+    if (changed(root, `missing:${id}`)) root.innerHTML = `<div class="empty"><h2>Champion not found</h2><p class="sub">${esc(id)} isn't in the checklist yet.</p><a class="btn ghost" href="#/champions">All champions</a></div>`;
     return;
   }
   const games = (st.matches ?? []).filter((m) => m.championId === card.id);
@@ -119,17 +119,17 @@ export function renderChampion(st, id) {
           <div class="eyebrow">${esc((card.tags ?? []).join(' · ') || 'Champion')}</div>
           <h1>${esc(card.name)}</h1>
           ${card.title ? `<p class="champ-title">${esc(card.title)}</p>` : ''}
-          <div class="champ-hero-chips">${chip(st8, icon)}${card.owned === false ? `<span class="chip muted">${icon('lock', 12)}Not owned</span>` : ''}${card.masteryLevel ? `<span class="chip mastery">${icon('award', 12)}Mastery ${card.masteryLevel} · ${num(card.masteryPoints)} pts</span>` : ''}</div>
+          <div class="champ-hero-chips">${chip(st8, icon)}${card.owned === false ? `<span class="chip muted">${icon('lock', 12)}Not owned</span>` : ''}${card.masteryLevel ? `<span class="chip mastery">Mastery ${card.masteryLevel} · ${num(card.masteryPoints)} pts</span>` : ''}</div>
           <div class="champ-actions">${actionHtml(card)}</div>
           ${message ? `<div class="form-error">${esc(message)}</div>` : ''}
         </div>
       </div>
     </section>
-    ${st.matches ? profileCard(card, games) : '<div class="card skeleton tall"></div>'}
-    ${games.length ? `<section class="card"><header class="card-head"><div><h2>${icon('layers', 16)} Arena games</h2><p class="sub">${games.length > 40 ? `Latest 40 of ${games.length}` : 'Every game, newest first'}</p></div></header>
+    ${st.matches ? profileCard(card, games) : '<div class="section skeleton tall"></div>'}
+    ${games.length ? `<section class="section"><header class="section-head"><div><h2>Arena games</h2><p class="sub">${games.length > 40 ? `Latest 40 of ${games.length}` : 'Every game, newest first'}</p></div></header>
       <div class="game-list compact">${games.slice(0, 40).map((m) => `<div class="game-row static">
           <span class="place ${tierOf(m.placement)}">${m.placement ?? '?'}</span>
-          <span class="game-name">${m.placement ? ordinal(m.placement) : 'Unplaced'}${m.firstWin ? `<span class="first-win">${icon('sparkles', 12)} First win</span>` : ''}</span>
+          <span class="game-name">${m.placement ? ordinal(m.placement) : 'Unplaced'}${m.firstWin ? '<span class="first-win">First win</span>' : ''}</span>
           <span class="game-time" title="${esc(new Date(m.gameEnd).toLocaleString())}">${fmtDate(m.gameEnd)} · ${new Date(m.gameEnd).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span></div>`).join('')}</div></section>` : ''}`;
   $('cd-toggle')?.addEventListener('click', () => toggle(card));
 }

@@ -53,12 +53,10 @@ export function trendChart(trend) {
     return slice.reduce((a, b) => a + b, 0) / slice.length;
   });
   const line = avg.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
-  const area = `${line} L${x(trend.length - 1).toFixed(1)} ${H - padY} L${x(0).toFixed(1)} ${H - padY} Z`;
   const grid = [1, 4, 8].map((p) => `<line x1="${padX}" x2="${W - padX}" y1="${y(p)}" y2="${y(p)}" class="grid"/><text x="${W - padX}" y="${y(p) - 6}" class="axis" text-anchor="end">${ordinal(p)}</text>`).join('');
   const dots = trend.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p).toFixed(1)}" r="6" class="dot ${tierOf(p)}"><title>${ordinal(p)}</title></circle>`).join('');
   return `<svg class="trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="Placements over your last ${trend.length} games">
-    <defs><linearGradient id="trend-a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--blue)" stop-opacity=".28"/><stop offset="1" stop-color="var(--blue)" stop-opacity="0"/></linearGradient></defs>
-    ${grid}<path d="${area}" fill="url(#trend-a)"/><path d="${line}" class="avg"/>${dots}
+    ${grid}<path d="${line}" class="avg"/>${dots}
   </svg>`;
 }
 
