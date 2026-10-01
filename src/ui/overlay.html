@@ -4,11 +4,12 @@
 <meta charset="utf-8">
 <title>Crowd Favorites</title>
 <style>
-  /* Black glass + electric blue, matching the main app. Sizing and the element
+  /* Near-black and flat, matching the main app. Sizing and the element
      structure are a contract with the shell (fitOverlayHeight measures #panel,
      the whole panel is the drag handle, click-through follows the pointer).
      The panel answers "do I still need any of these?": needed rows are large,
-     bright and coral-edged; won rows shrink and dim; unknown stays neutral. */
+     bright and coral-edged; won rows shrink and dim; unknown stays neutral.
+     No glow: status is carried by size, weight and color. */
   @font-face { font-family: 'Inter'; font-weight: 100 900; src: url('/fonts/inter-latin-wght.woff2') format('woff2'); }
   html, body {
     margin: 0;
@@ -26,50 +27,41 @@
     -webkit-app-region: drag;
     box-sizing: border-box;
     padding: 8px 7px 7px;
-    background:
-      radial-gradient(120% 90% at 0% 0%, rgba(29, 78, 216, .26), transparent 60%),
-      rgba(8, 11, 17, .95);
-    border: 1px solid rgba(96, 165, 250, .42);
-    border-radius: 12px;
-    box-shadow: inset 0 0 0 1px rgba(56, 189, 248, .07), inset 0 1px 0 rgba(255, 255, 255, .05);
+    background: rgba(9, 12, 18, .96);
+    border: 1px solid rgba(148, 163, 184, .24);
+    border-radius: 10px;
   }
   #panel.hidden { display: none; }
   #head {
     display: flex;
     align-items: center;
     gap: 7px;
-    padding: 0 2px 7px 3px;
-    border-bottom: 1px solid rgba(96, 165, 250, .16);
+    padding: 0 3px 7px 3px;
+    border-bottom: 1px solid rgba(148, 163, 184, .12);
   }
-  #head .dot { width: 7px; height: 7px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 8px #38bdf8; flex: none; }
+  #head .dot { width: 6px; height: 6px; border-radius: 50%; background: #38bdf8; flex: none; }
   #title {
     flex: 1;
     min-width: 0;
-    font-weight: 700;
-    font-size: 10px;
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    color: #93c5fd;
+    font-weight: 600;
+    font-size: 12px;
+    color: #c4ccd8;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* The answer: how many are still needed (or that none are). */
+  /* The answer: how many are still needed (or that none are), in the status color. */
   #summary {
     flex: none;
-    padding: 2px 7px;
-    border-radius: 999px;
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: .04em;
-    text-transform: uppercase;
+    font-size: 12px;
+    font-weight: 650;
     font-variant-numeric: tabular-nums;
   }
   #summary:empty { display: none; }
-  #summary.need { color: #fecaca; background: rgba(248, 113, 113, .2); box-shadow: inset 0 0 0 1px rgba(248, 113, 113, .45); }
-  #summary.won { color: #5eead4; background: rgba(45, 212, 191, .12); box-shadow: inset 0 0 0 1px rgba(45, 212, 191, .35); }
-  #summary.unknown { color: #aab4c4; background: rgba(148, 163, 184, .12); }
-  #summary.preview { color: #fbbf24; background: rgba(251, 191, 36, .1); box-shadow: inset 0 0 0 1px rgba(251, 191, 36, .35); }
+  #summary.need { color: #fca5a5; }
+  #summary.won { color: #2dd4bf; }
+  #summary.unknown { color: #aab4c4; }
+  #summary.preview { color: #fbbf24; }
   #list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
   #list li { box-sizing: border-box; display: flex; align-items: center; gap: 9px; min-height: 30px; padding: 3px 6px 3px 8px; border-radius: 8px; }
   /* Portrait over colored initials, so a missing image never leaves a hole. */
@@ -87,31 +79,29 @@
   .mark svg { display: block; }
 
   /* Needed: the reason the panel exists. */
-  li.needed { background: linear-gradient(90deg, rgba(248, 113, 113, .17), rgba(248, 113, 113, .03) 78%); box-shadow: inset 3px 0 0 #f87171; }
+  li.needed { background: rgba(248, 113, 113, .11); box-shadow: inset 2px 0 0 #f87171; }
   li.needed .pic { width: 34px; height: 34px; box-shadow: 0 0 0 1.5px rgba(248, 113, 113, .6); }
   li.needed .ini { font-size: 12px; }
-  li.needed .name { font-size: 13px; font-weight: 750; color: #fff; }
+  li.needed .name { font-size: 13px; font-weight: 650; color: #fff; }
   li.needed .mark {
     height: 19px;
     padding: 0 7px;
-    border-radius: 999px;
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: .07em;
-    text-transform: uppercase;
-    color: #fee2e2;
-    background: rgba(248, 113, 113, .3);
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 650;
+    color: #fecaca;
+    background: rgba(248, 113, 113, .22);
   }
-  /* Won: done — still listed, but out of the way. */
+  /* Won: done. Still listed, but out of the way. */
   li.won .pic { width: 24px; height: 24px; margin: 0 5px; filter: saturate(.35) brightness(.6); }
   li.won .ini { font-size: 9px; }
-  li.won .name { font-size: 11.5px; font-weight: 600; color: #8591a6; }
+  li.won .name { font-size: 11.5px; font-weight: 500; color: #8591a6; }
   li.won .mark { width: 18px; height: 18px; color: #2dd4bf; }
   /* Unknown (no win data): neutral, and clearly neither. */
   li.unknown .pic { width: 28px; height: 28px; margin: 0 3px; filter: saturate(.7); }
   li.unknown .ini { font-size: 10px; }
-  li.unknown .name { font-size: 12px; font-weight: 600; color: #c4ccd8; }
-  li.unknown .mark { width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 800; color: #aab4c4; background: rgba(148, 163, 184, .16); }
+  li.unknown .name { font-size: 12px; font-weight: 550; color: #c4ccd8; }
+  li.unknown .mark { width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 650; color: #aab4c4; background: rgba(148, 163, 184, .16); }
 </style>
 </head>
 <body>
