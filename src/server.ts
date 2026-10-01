@@ -13,6 +13,7 @@ import { fixtureArt, fixtureScenario, isFixtureScenario, type FixtureScenarioNam
 import { REGIONS, regionByLabel, regionFromClient } from './regions.ts';
 import { applyConfigPatch, loadConfig, normalizeConfigPatch, type CompanionConfig } from './config.ts';
 import { isJsonContentType, rejectRequest } from './httpGuard.ts';
+import { responseBody } from './respond.ts';
 import { isEntryPoint } from './entry.ts';
 import { detectArenaGameEnd, computePostGameEvent, findFinishedGame, postGameStep, wonSnapshot, isStale, isArenaQueue, type PostGameEvent } from './postgame.ts';
 import { LcuSubscriber, type LcuEvent } from './ws.ts';
@@ -747,7 +748,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
   const send = (code: number, body: unknown, type = 'application/json') => {
     res.writeHead(code, { 'Content-Type': type });
-    res.end(type === 'application/json' ? JSON.stringify(body) : String(body));
+    res.end(responseBody(body, type));
   };
   const readBody = () =>
     new Promise<string>((r) => {
