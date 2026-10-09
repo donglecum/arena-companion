@@ -17,7 +17,7 @@ function actionHtml(card) {
     ? (confirming ? 'Click again to remove the mark' : 'Remove manual mark')
     : (confirming ? 'Click again to confirm' : 'Mark as won');
   return `<button id="cd-toggle" class="btn ${action === 'remove' ? 'ghost danger' : 'primary'} ${confirming ? 'confirming' : ''}" ${busy ? 'disabled' : ''}>${label}</button>
-    <span class="dim small">${action === 'add' ? 'For wins older than match history. Saved to arena-tracker.' : 'Marked by hand.'}</span>`;
+    <span class="dim small">${action === 'add' ? 'For wins older than match history. Saved on this PC.' : 'Marked by hand.'}</span>`;
 }
 
 async function toggle(card) {

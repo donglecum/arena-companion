@@ -15,6 +15,7 @@ import { applyConfigPatch, loadConfig, normalizeConfigPatch, type CompanionConfi
 import { isJsonContentType, rejectRequest } from './httpGuard.ts';
 import { responseBody } from './respond.ts';
 import { isEntryPoint } from './entry.ts';
+import { manualWinsFor, saveManualMark } from './manualWins.ts';
 import { detectArenaGameEnd, computePostGameEvent, findFinishedGame, postGameStep, wonSnapshot, isStale, isArenaQueue, type PostGameEvent } from './postgame.ts';
 import { LcuSubscriber, type LcuEvent } from './ws.ts';
 
@@ -666,7 +667,7 @@ async function runScan(full: boolean): Promise<ScanResult> {
     state.ddragonVersion = version;
     indexChampions(champions);
     const masteries = await api.getMasteries(region.platform, store.account.puuid);
-    const manual = new Set(await api.getManualWins(playerKeyFor(region.platform, gameName, tagLine)));
+    const manual = await manualWinsFor(api, CACHE_DIR, playerKeyFor(region.platform, gameName, tagLine));
     const result = aggregate(store, champions, masteries, manual);
     // The player or region may have changed while this scan ran; a queued scan covers the new one.
     if (playerKeyFor(region.platform, gameName, tagLine) !== playerKey()) return { ok: false, error: 'player changed during scan' };
@@ -888,16 +889,22 @@ const server = http.createServer(async (req, res) => {
       return send(200, { enabled: state.overlayPreview });
     }
     if (url.pathname.startsWith('/api/manual/')) {
-      const champion = decodeURIComponent(url.pathname.slice('/api/manual/'.length));
+      const requested = decodeURIComponent(url.pathname.slice('/api/manual/'.length));
       const key = playerKey();
       if (!key) return send(400, { error: 'no player identity' });
-      const api = makeTrackerApi(TRACKER);
       if (req.method !== 'POST' && req.method !== 'DELETE') return send(405, { error: 'method not allowed' });
+      const marked = req.method === 'POST';
+      // Scans match manual wins by Data Dragon id ("MonkeyKing"), so store that even when given a name.
+      const champion = state.checklist?.cards.find((c) => c.name === requested || c.id === requested)?.id ?? requested;
       if (!FIXTURE) {
-        if (req.method === 'POST') await api.addManualWin(key, champion);
-        else await api.removeManualWin(key, champion);
+        // This PC is the record; arena-tracker is a best-effort copy and may refuse the write.
+        saveManualMark(CACHE_DIR, key, champion, marked);
+        const api = makeTrackerApi(TRACKER);
+        void (marked ? api.addManualWin(key, champion) : api.removeManualWin(key, champion)).catch((err) =>
+          console.log(`[manual] arena-tracker did not save ${champion}; kept on this PC: ${String(err).slice(0, 160)}`),
+        );
       }
-      if (state.checklist) applyManualMark(state.checklist, champion, req.method === 'POST');
+      if (state.checklist) applyManualMark(state.checklist, champion, marked);
       if (state.crowdFavorites.ids.length) setCrowdFavorites(state.crowdFavorites.ids, 'manual win changed', true);
       return send(200, { ok: true });
     }

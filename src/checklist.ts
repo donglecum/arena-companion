@@ -3,6 +3,7 @@ import { makeTrackerApi } from './trackerApi.ts';
 import { fetchChampions } from './ddragon.ts';
 import { fullScan, update, aggregate, loadStore, saveStore } from './scan.ts';
 import { REGIONS, regionByLabel } from './regions.ts';
+import { manualWinsFor } from './manualWins.ts';
 
 const CACHE_DIR = process.env.ARENA_CACHE ?? 'cache';
 
@@ -33,7 +34,7 @@ export async function buildChecklist(opts: ChecklistOptions) {
 
   const { version, champions } = await fetchChampions();
   const masteries = await api.getMasteries(region.platform, store.account.puuid);
-  const manual = new Set(await api.getManualWins(`${region.platform}:${gameName.toLowerCase()}#${tagLine.toLowerCase()}`));
+  const manual = await manualWinsFor(api, CACHE_DIR, `${region.platform}:${gameName.toLowerCase()}#${tagLine.toLowerCase()}`);
 
   const result = aggregate(store, champions, masteries, manual);
   return { version, store, result };
