@@ -52,6 +52,9 @@ let overlayDockClient = null;
 let overlayDockTimer = null;
 let overlayDragging = false;
 let overlaySettingBounds = false;
+// Requested layout is authoritative; native DIP readback may round outwards.
+let overlayHeight = 120;
+let overlayRequestedBounds = null;
 let smokeErrorLogged = '';
 let statusFailures = 0;
 let lastGameflowPhase = null;
@@ -320,18 +323,20 @@ function saveOverlayPosition() {
 }
 
 function setOverlayBounds(bounds) {
-  const current = overlayWin.getBounds();
-  if (current.x === bounds.x && current.y === bounds.y && current.height === bounds.height) return;
+  bounds = { ...bounds, width: OVERLAY_WIDTH, height: overlayHeight };
+  const current = overlayRequestedBounds ?? overlayWin.getBounds();
+  if (current.x === bounds.x && current.y === bounds.y && current.width === bounds.width && current.height === bounds.height) return;
   overlaySettingBounds = true;
   try {
     overlayWin.setBounds(bounds);
+    overlayRequestedBounds = bounds;
   } finally {
     overlaySettingBounds = false;
   }
 }
 
-function dockOverlayBounds(bounds) {
-  return dockBounds(overlayDockClient, bounds, overlayOffset, screen.getDisplayMatching(overlayDockClient).workArea);
+function dockOverlayBounds() {
+  return dockBounds(overlayDockClient, { width: OVERLAY_WIDTH, height: overlayHeight }, overlayOffset, screen.getDisplayMatching(overlayDockClient).workArea);
 }
 
 function updateDock(rect) {
@@ -340,21 +345,23 @@ function updateDock(rect) {
   // rectangle, not the overlay's previous display (important across monitors).
   overlayDockClient = rect ? screen.screenToDipRect(null, rect) : null;
   if (overlayDockClient) {
-    overlayOffset = clampOffset(overlayOffset, overlayDockClient.height, overlayWin.getBounds().height);
-    setOverlayBounds(dockOverlayBounds(overlayWin.getBounds()));
+    overlayOffset = clampOffset(overlayOffset, overlayDockClient.height, overlayHeight);
+    setOverlayBounds(dockOverlayBounds());
   } else {
     const b = overlayWin.getBounds();
     setOverlayBounds({ ...b, ...overlayFreePos });
   }
 }
 
+// Native moved events can arrive after setBounds returns. Only will-move marks
+// a user drag; programmatic moves must not start another dock/size round trip.
 function overlayMoved() {
-  if (overlaySettingBounds || !overlayShown) return;
+  if (overlaySettingBounds || !overlayShown || !overlayDragging) return;
   overlayDragging = false;
   const b = overlayWin.getBounds();
   if (overlayDockClient) {
-    overlayOffset = clampOffset(b.y - overlayDockClient.y, overlayDockClient.height, b.height);
-    setOverlayBounds(dockOverlayBounds(b));
+    overlayOffset = clampOffset(b.y - overlayDockClient.y, overlayDockClient.height, overlayHeight);
+    setOverlayBounds(dockOverlayBounds());
   } else {
     overlayFreePos = { x: b.x, y: b.y };
   }
@@ -375,7 +382,7 @@ function createOverlay() {
     x: pos.x,
     y: pos.y,
     width: OVERLAY_WIDTH,
-    height: 120,
+    height: overlayHeight,
     frame: false,
     transparent: true,
     hasShadow: false,
@@ -398,7 +405,11 @@ function createOverlay() {
     overlayLoadTimer = setTimeout(loadOverlayPage, 3000);
   });
   // will-move is user-only on Windows; setBounds never starts a drag.
-  overlayWin.on('will-move', () => { if (overlayShown) overlayDragging = true; });
+  overlayWin.on('will-move', () => {
+    if (!overlayShown) return;
+    overlayDragging = true;
+    overlayRequestedBounds = null; // a user drag must still snap back to the dock
+  });
   overlayWin.on('moved', overlayMoved);
   overlayFreePos = pos;
   overlaySavedPos = { ...pos, offset: overlayOffset };
@@ -515,11 +526,10 @@ async function fitOverlayHeight() {
     );
     if (!overlayShown || typeof h !== 'number' || !Number.isFinite(h)) return;
     const height = Math.max(48, Math.min(560, h + 2, overlayDockClient?.height ?? Infinity));
-    const b = overlayWin.getBounds();
-    if (Math.abs(b.height - height) > 1) {
-      if (overlayDockClient) setOverlayBounds(dockOverlayBounds({ ...b, height }));
-      else setOverlayBounds({ ...b, height });
-    }
+    if (overlayHeight === height) return;
+    overlayHeight = height;
+    if (overlayDockClient) setOverlayBounds(dockOverlayBounds());
+    else setOverlayBounds({ ...overlayWin.getBounds(), ...overlayFreePos });
   } catch {
     /* renderer not ready */
   }
